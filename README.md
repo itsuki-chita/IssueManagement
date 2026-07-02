@@ -1,36 +1,114 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# IssueManagement
 
-## Getting Started
+Jira ライクな課題管理アプリです。プロジェクト・スプリント・タスクを管理でき、バックログ・スプリントビュー・カンバンボードを切り替えて利用できます。
 
-First, run the development server:
+## 機能
+
+- **プロジェクト管理** — 色・課題キー (例: `PRJ`) でプロジェクトを作成
+- **スプリント管理** — スプリントへのタスク割り当て・ドラッグ&ドロップ並び替え
+- **タスク管理** — ステータス・優先度・期限・担当スプリント・プロジェクトを管理
+- **課題キー** — `PRJ-1` 形式の自動採番。クリックでタスク詳細画面へ遷移
+- **階層タスク** — サブタスクの作成・チェック・ナビゲーション対応
+- **ビュー切替** — リストビュー / スイムレーン (Kanban) ビュー
+- **Markdown メモ** — タスクの説明欄で Markdown 記述・プレビュー
+- **コメント** — タスクごとにコメントを追加・編集・削除
+
+## 技術スタック
+
+| 用途 | ライブラリ |
+|------|-----------|
+| フレームワーク | Next.js 16 (App Router) |
+| UI | React 19 + Tailwind CSS |
+| DB | SQLite (Prisma 5) |
+| DnD | @dnd-kit/core, @dnd-kit/sortable |
+| Markdown | react-markdown + remark-gfm |
+
+---
+
+## セットアップ
+
+### 前提条件
+
+- **Node.js v20 以上** （v20.14.0 で動作確認済み）
+  - [https://nodejs.org](https://nodejs.org) からインストール
+- **npm** (Node.js に同梱)
+
+### 手順
+
+#### 1. リポジトリをクローン
+
+```bash
+git clone https://github.com/itsuki-chita/IssueManagement.git
+cd IssueManagement
+```
+
+#### 2. 依存パッケージをインストール
+
+```bash
+npm install
+```
+
+#### 3. 環境変数ファイルを作成
+
+プロジェクトルートに `.env` ファイルを作成し、以下を記述します。
+
+```env
+DATABASE_URL="file:./prisma/dev.db"
+```
+
+#### 4. データベースを初期化
+
+```bash
+npx prisma db push
+```
+
+> 初回実行時に `prisma/dev.db` が自動生成されます。
+
+#### 5. 開発サーバーを起動
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+ブラウザで [http://localhost:3000](http://localhost:3000) を開いてください。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+---
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## コマンド一覧
 
-## Learn More
+| コマンド | 説明 |
+|----------|------|
+| `npm run dev` | 開発サーバー起動 (ホットリロード付き) |
+| `npm run build` | 本番用ビルド |
+| `npm start` | 本番サーバー起動 |
+| `npx prisma studio` | DB の GUI ブラウザを起動 |
+| `npx prisma db push` | スキーマ変更を DB に反映 |
 
-To learn more about Next.js, take a look at the following resources:
+---
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## ディレクトリ構成
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```
+IssueManagement/
+├── app/
+│   ├── api/                  # API ルートハンドラー
+│   │   ├── tasks/            # タスク CRUD + 並び替え
+│   │   ├── sprints/          # スプリント CRUD + 並び替え
+│   │   ├── projects/         # プロジェクト CRUD
+│   │   └── comments/         # コメント CRUD
+│   ├── page.tsx              # メイン UI（シングルページ）
+│   └── layout.tsx
+├── prisma/
+│   ├── schema.prisma         # データモデル定義
+│   └── migrations/           # マイグレーション履歴
+├── lib/
+│   └── prisma.ts             # Prisma クライアント
+└── .env                      # 環境変数（要作成、git 管理外）
+```
 
-## Deploy on Vercel
+---
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## 注意事項
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- SQLite を使用するため、サーバーレス環境 (Vercel Edge など) では動作しません。Node.js ランタイムが必要です。
+- `prisma/dev.db` および `.env` は `.gitignore` で除外されています。クローン後は必ずセットアップ手順を実施してください。
