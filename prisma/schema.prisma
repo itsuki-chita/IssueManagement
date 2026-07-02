@@ -1,0 +1,59 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Project {
+  id          Int       @id @default(autoincrement())
+  name        String
+  key         String?   @unique
+  description String?
+  color       String    @default("#6366f1")
+  createdAt   DateTime  @default(now())
+  tasks       Task[]
+}
+
+model Sprint {
+  id        Int       @id @default(autoincrement())
+  name      String
+  startDate DateTime?
+  endDate   DateTime?
+  status    String    @default("planning")
+  order     Int       @default(0)
+  createdAt DateTime  @default(now())
+  tasks     Task[]
+}
+
+model Task {
+  id          Int       @id @default(autoincrement())
+  title       String
+  description String?
+  status      String    @default("open")
+  done        Boolean   @default(false)
+  priority    String    @default("medium")
+  dueDate     DateTime?
+  sprintId    Int?
+  sprint      Sprint?   @relation(fields: [sprintId], references: [id])
+  projectId   Int?
+  project     Project?  @relation(fields: [projectId], references: [id])
+  taskNumber  Int?
+  order       Int       @default(0)
+  createdAt   DateTime  @default(now())
+  comments    Comment[]
+  parentId    Int?
+  parent      Task?     @relation("Subtasks", fields: [parentId], references: [id], onDelete: Cascade)
+  subtasks    Task[]    @relation("Subtasks")
+}
+
+model Comment {
+  id        Int      @id @default(autoincrement())
+  body      String
+  taskId    Int
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
