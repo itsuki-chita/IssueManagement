@@ -717,6 +717,11 @@ export default function Home() {
   const [showProjectForm, setShowProjectForm] = useState(false);
   const [projectForm, setProjectForm] = useState(EMPTY_PROJECT_FORM);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [showAdminModal, setShowAdminModal] = useState(false);
+  type UpdateStatus = "idle" | "running" | "done" | "error";
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("idle");
+  const [updateSteps, setUpdateSteps] = useState<{ label: string; output: string; success: boolean }[]>([]);
+  const [updateUpToDate, setUpdateUpToDate] = useState(false);
   const [editProjectForm, setEditProjectForm] = useState({ name: "", key: "" });
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [activeOverId, setActiveOverId] = useState<string | number | null>(null);
@@ -1124,12 +1129,23 @@ export default function Home() {
         <header className="bg-white border-b border-gray-200 px-6 py-4 flex-shrink-0">
           <div className="flex items-center justify-between">
             <h1 className="text-xl font-bold text-gray-800">タスク管理</h1>
+            <div className="flex items-center gap-2">
             <button
               onClick={openCreateForm}
               className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
             >
               + タスクを追加
             </button>
+            <button
+              onClick={() => { setShowAdminModal(true); setUpdateStatus("idle"); setUpdateSteps([]); setUpdateUpToDate(false); }}
+              className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              title="管理メニュー"
+            >
+              <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+              </svg>
+            </button>
+            </div>
           </div>
         </header>
 
@@ -2190,6 +2206,89 @@ export default function Home() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* 管理メニューモーダル */}
+      {showAdminModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setShowAdminModal(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 p-6 flex flex-col gap-5" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-bold text-gray-800">管理メニュー</h2>
+              <button onClick={() => setShowAdminModal(false)} className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 transition-colors">
+                <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="border border-gray-200 rounded-xl p-4 flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-gray-700">アプリをアップデート</p>
+                  <p className="text-xs text-gray-400 mt-0.5">GitHub から最新バージョンを取得して反映します</p>
+                </div>
+                <button
+                  onClick={async () => {
+                    setUpdateStatus("running");
+                    setUpdateSteps([]);
+                    setUpdateUpToDate(false);
+                    try {
+                      const res = await fetch("/api/admin/update", { method: "POST" });
+                      const data = await res.json();
+                      setUpdateSteps(data.steps ?? []);
+                      setUpdateUpToDate(!!data.upToDate);
+                      setUpdateStatus(data.success ? "done" : "error");
+                    } catch {
+                      setUpdateSteps([{ label: "エラー", output: "リクエストに失敗しました", success: false }]);
+                      setUpdateStatus("error");
+                    }
+                  }}
+                  disabled={updateStatus === "running"}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex-shrink-0 ${
+                    updateStatus === "running"
+                      ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                      : "bg-indigo-600 text-white hover:bg-indigo-700"
+                  }`}
+                >
+                  {updateStatus === "running" ? "実行中…" : "確認・実行"}
+                </button>
+              </div>
+
+              {updateStatus === "done" && updateUpToDate && (
+                <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                  <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-green-500 flex-shrink-0">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                  <span className="text-sm text-green-700 font-medium">最新バージョンです</span>
+                </div>
+              )}
+
+              {updateSteps.length > 0 && (
+                <div className="flex flex-col gap-2 max-h-64 overflow-y-auto">
+                  {updateSteps.map((step, i) => (
+                    <div key={i} className={`rounded-lg border text-xs font-mono ${step.success ? "border-gray-200 bg-gray-50" : "border-red-200 bg-red-50"}`}>
+                      <div className={`flex items-center gap-1.5 px-3 py-1.5 border-b ${step.success ? "border-gray-200" : "border-red-200"}`}>
+                        {step.success ? (
+                          <svg viewBox="0 0 12 12" fill="currentColor" className="w-3 h-3 text-green-500 flex-shrink-0">
+                            <path fillRule="evenodd" d="M10 6A4 4 0 112 6a4 4 0 018 0zm-1.5-.5L6 8 3.5 5.5l1-1L6 6l2-2 .5.5z" clipRule="evenodd" />
+                          </svg>
+                        ) : (
+                          <svg viewBox="0 0 12 12" fill="currentColor" className="w-3 h-3 text-red-500 flex-shrink-0">
+                            <path fillRule="evenodd" d="M6 1a5 5 0 100 10A5 5 0 006 1zm-.5 2.5h1v4h-1V3.5zm0 5h1v1h-1v-1z" clipRule="evenodd" />
+                          </svg>
+                        )}
+                        <span className={`font-semibold ${step.success ? "text-gray-600" : "text-red-600"}`}>{step.label}</span>
+                      </div>
+                      {step.output && (
+                        <pre className="px-3 py-2 text-gray-700 whitespace-pre-wrap break-all leading-relaxed">{step.output}</pre>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
