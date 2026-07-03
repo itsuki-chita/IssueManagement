@@ -36,8 +36,10 @@ type ViewState =
   | "backlog"
   | "all-sprints"
   | "all-projects"
+  | "all-epics"
   | { kind: "sprint"; id: number }
   | { kind: "project"; id: number }
+  | { kind: "epic"; id: number }
   | { kind: "task"; id: number };
 
 type Project = {
@@ -59,6 +61,17 @@ type Sprint = {
   createdAt: string;
 };
 
+type Epic = {
+  id: number;
+  title: string;
+  description: string | null;
+  status: string;
+  color: string;
+  projectId: number | null;
+  order: number;
+  createdAt: string;
+};
+
 type Task = {
   id: number;
   title: string;
@@ -69,6 +82,7 @@ type Task = {
   dueDate: string | null;
   sprintId: number | null;
   projectId: number | null;
+  epicId: number | null;
   taskNumber: number | null;
   parentId: number | null;
   createdAt: string;
@@ -117,6 +131,13 @@ const PROJECT_COLORS = [
   "#ef4444", "#ec4899", "#8b5cf6", "#14b8a6",
 ];
 
+const EPIC_COLORS = [
+  "#818cf8", "#60a5fa", "#34d399", "#fbbf24",
+  "#f87171", "#f472b6", "#a78bfa", "#2dd4bf",
+];
+
+const EMPTY_EPIC_FORM = { title: "", description: "", color: "#818cf8", projectId: null as number | null };
+
 function isSprintView(v: ViewState): v is { kind: "sprint"; id: number } {
   return typeof v === "object" && v.kind === "sprint";
 }
@@ -131,6 +152,12 @@ function isProjectView(v: ViewState): v is { kind: "project"; id: number } {
 }
 function isTaskView(v: ViewState): v is { kind: "task"; id: number } {
   return typeof v === "object" && v.kind === "task";
+}
+function isEpicView(v: ViewState): v is { kind: "epic"; id: number } {
+  return typeof v === "object" && v.kind === "epic";
+}
+function isAllEpicsView(v: ViewState): v is "all-epics" {
+  return v === "all-epics";
 }
 
 const URL_REGEX = /https?:\/\/[^\s<>"]+/g;
@@ -326,7 +353,8 @@ function SprintNavItem({
 }
 
 function SortableSprintSection({
-  sprint, sprintTasks, selectedTaskId, projects, sprints, allTasks,
+  sprint, sprintTasks, selectedTaskId, projects, sprints, epics, allTasks,
+  isTaskOver,
   onSelectTask, onToggleDone, onChangeSprint, onShowOnly, onEdit, onDelete, onNavigate,
 }: {
   sprint: Sprint;
@@ -334,7 +362,9 @@ function SortableSprintSection({
   selectedTaskId: number | null;
   projects: Project[];
   sprints: Sprint[];
+  epics: Epic[];
   allTasks: Task[];
+  isTaskOver: boolean;
   onSelectTask: (task: Task) => void;
   onToggleDone: (task: Task, e: React.MouseEvent) => void;
   onChangeSprint: (taskId: number, sprintId: number | null) => void;
@@ -350,7 +380,7 @@ function SortableSprintSection({
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }}
-      className="bg-white rounded-xl border border-gray-200 overflow-hidden"
+      className={`bg-white rounded-xl border overflow-hidden transition-all ${isTaskOver ? "border-2 border-dashed border-indigo-400" : "border-gray-200"}`}
     >
       {/* ヘッダー全体がドラッグハンドル。クリックでスプリントビューへ遷移 */}
       <div
@@ -418,6 +448,7 @@ function SortableSprintSection({
                     onToggleDone={(e) => onToggleDone(task, e)}
                     projects={projects}
                     sprints={sprints}
+                    epics={epics}
                     onChangeSprint={onChangeSprint}
                     allTasks={allTasks}
                     onShowOnly={onShowOnly}
@@ -433,7 +464,7 @@ function SortableSprintSection({
 }
 
 function DraggableTaskCard({
-  task, isSelected, onSelect, onToggleDone, projects, sprints, onChangeSprint, allTasks, onShowOnly,
+  task, isSelected, onSelect, onToggleDone, projects, sprints, epics, onChangeSprint, allTasks, onShowOnly,
 }: {
   task: Task;
   isSelected: boolean;
@@ -441,6 +472,7 @@ function DraggableTaskCard({
   onToggleDone: (e: React.MouseEvent) => void;
   projects: Project[];
   sprints: Sprint[];
+  epics: Epic[];
   onChangeSprint: (taskId: number, sprintId: number | null) => void;
   allTasks: Task[];
   onShowOnly: (task: Task) => void;
@@ -450,6 +482,7 @@ function DraggableTaskCard({
   const project = task.projectId ? projects.find((p) => p.id === task.projectId) : null;
   const taskKey = getTaskKey(task, projects);
   const currentSprint = task.sprintId ? sprints.find((s) => s.id === task.sprintId) : null;
+  const epic = task.epicId ? epics.find((e) => e.id === task.epicId) : null;
   const subtasks = allTasks.filter((t) => t.parentId === task.id);
   const [showSprintMenu, setShowSprintMenu] = useState(false);
   const sprintMenuRef = useRef<HTMLDivElement>(null);
@@ -515,6 +548,11 @@ function DraggableTaskCard({
           <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${PRIORITY_COLOR[task.priority as Priority]}`}>
             {PRIORITY_LABEL[task.priority as Priority]}
           </span>
+          {epic && (
+            <span className="flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full font-medium" style={{ backgroundColor: epic.color + "22", color: epic.color }}>
+              <span className="max-w-[56px] truncate">{epic.title}</span>
+            </span>
+          )}
           {project && (
             <span className="flex items-center gap-1">
               <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: project.color }} />
@@ -747,6 +785,12 @@ function DroppableProjectItem({
   );
 }
 
+function EpicDropZone({ epicId, children }: { epicId: number | null; children: React.ReactNode }) {
+  const id = epicId === null ? "epic-null" : `epic-${epicId}`;
+  const { setNodeRef } = useDroppable({ id });
+  return <div ref={setNodeRef}>{children}</div>;
+}
+
 function BacklogDropZone({ taskCount, isSelected, onSelect, isHighlighted }: {
   taskCount: number;
   isSelected: boolean;
@@ -804,6 +848,11 @@ export default function Home() {
   const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
   const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
   const [editingCommentBody, setEditingCommentBody] = useState("");
+  const [epics, setEpics] = useState<Epic[]>([]);
+  const [showEpicForm, setShowEpicForm] = useState(false);
+  const [epicForm, setEpicForm] = useState(EMPTY_EPIC_FORM);
+  const [editingEpic, setEditingEpic] = useState<Epic | null>(null);
+  const [editEpicForm, setEditEpicForm] = useState(EMPTY_EPIC_FORM);
 
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) ?? null;
   const isTaskDragging = !!activeDragId?.startsWith("task-");
@@ -812,18 +861,21 @@ export default function Home() {
     : null;
 
   async function fetchAll() {
-    const [tasksRes, sprintsRes, projectsRes] = await Promise.all([
+    const [tasksRes, sprintsRes, projectsRes, epicsRes] = await Promise.all([
       fetch("/api/tasks"),
       fetch("/api/sprints"),
       fetch("/api/projects"),
+      fetch("/api/epics"),
     ]);
     const newTasks: Task[] = await tasksRes.json();
     const newSprints: Sprint[] = await sprintsRes.json();
     const newProjects: Project[] = await projectsRes.json();
+    const newEpics: Epic[] = await epicsRes.json();
     setTasks(newTasks);
     setSprints(newSprints);
     setProjects(newProjects);
-    return { tasks: newTasks, sprints: newSprints, projects: newProjects };
+    setEpics(newEpics);
+    return { tasks: newTasks, sprints: newSprints, projects: newProjects, epics: newEpics };
   }
 
   useEffect(() => { fetchAll(); }, []);
@@ -844,8 +896,10 @@ export default function Home() {
     if (view === "backlog") return t.sprintId === null;
     if (view === "all-sprints") return t.sprintId !== null;
     if (view === "all-projects") return t.projectId !== null;
+    if (view === "all-epics") return true;
     if (isSprintView(view)) return t.sprintId === view.id;
     if (isProjectView(view)) return t.projectId === view.id;
+    if (isEpicView(view)) return t.epicId === view.id;
     return true;
   });
   const filtered = viewedTasks.filter((t) => {
@@ -856,13 +910,15 @@ export default function Home() {
 
   const currentSprint = isSprintView(view) ? sprints.find((s) => s.id === view.id) : null;
   const currentProject = isProjectView(view) ? projects.find((p) => p.id === view.id) : null;
+  const currentEpic = isEpicView(view) ? epics.find((e) => e.id === view.id) : null;
   const currentTaskInView = isTaskView(view) ? tasks.find((t) => t.id === view.id) : null;
   const viewTitle = view === "backlog" ? "バックログ"
     : view === "all-sprints" ? "スプリント管理"
     : view === "all-projects" ? "すべてのプロジェクト"
+    : view === "all-epics" ? "エピック管理"
     : isTaskView(view)
     ? (currentTaskInView ? `${getTaskKey(currentTaskInView, projects) ?? "#" + currentTaskInView.id}` : "")
-    : currentSprint?.name ?? currentProject?.name ?? "";
+    : currentSprint?.name ?? currentProject?.name ?? currentEpic?.title ?? "";
 
   function showTaskOnly(task: Task) {
     setPreviousView((prev) => (isTaskView(view) ? prev : view));
@@ -1107,6 +1163,50 @@ export default function Home() {
     fetchAll();
   }
 
+  async function handleEpicSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!epicForm.title.trim()) return;
+    const res = await fetch("/api/epics", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: epicForm.title.trim(),
+        description: epicForm.description.trim() || null,
+        color: epicForm.color,
+        projectId: epicForm.projectId,
+      }),
+    });
+    const created: Epic = await res.json();
+    setEpicForm(EMPTY_EPIC_FORM);
+    setShowEpicForm(false);
+    await fetchAll();
+    setView({ kind: "epic", id: created.id });
+  }
+
+  async function handleUpdateEpic(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingEpic || !editEpicForm.title.trim()) return;
+    await fetch(`/api/epics/${editingEpic.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: editEpicForm.title.trim(),
+        description: editEpicForm.description.trim() || null,
+        color: editEpicForm.color,
+        projectId: editEpicForm.projectId,
+      }),
+    });
+    setEditingEpic(null);
+    await fetchAll();
+  }
+
+  async function deleteEpic(epic: Epic) {
+    if (!confirm(`「${epic.title}」を削除しますか？\nストーリーの割り当ては解除されます。`)) return;
+    await fetch(`/api/epics/${epic.id}`, { method: "DELETE" });
+    if (isEpicView(view) && view.id === epic.id) setView("all-epics");
+    fetchAll();
+  }
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
@@ -1142,6 +1242,16 @@ export default function Home() {
           await fetchAll();
           return;
         }
+        // all-epics ビューでエピックをまたいだドロップ → エピック移動
+        if (view === "all-epics" && overTask && task.epicId !== overTask.epicId) {
+          await fetch(`/api/tasks/${taskId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ epicId: overTask.epicId }),
+          });
+          await fetchAll();
+          return;
+        }
         // all-projects ビューでプロジェクトをまたいだドロップはスナップバック
         if (view === "all-projects" && task.projectId !== tasks.find((t) => t.id === overTaskId)?.projectId) return;
         const sprintTasksForReorder = view === "all-sprints"
@@ -1161,6 +1271,18 @@ export default function Home() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ids: reordered.map((t) => t.id) }),
+        });
+        await fetchAll();
+        return;
+      }
+
+      if (typeof overId === "string" && overId.startsWith("epic-")) {
+        const targetEpicId = overId === "epic-null" ? null : parseInt(overId.replace("epic-", ""));
+        if (task.epicId === targetEpicId) return;
+        await fetch(`/api/tasks/${taskId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ epicId: targetEpicId }),
         });
         await fetchAll();
         return;
@@ -1352,6 +1474,43 @@ export default function Home() {
                 </div>
               </div>
 
+              {/* エピック */}
+              <div className="p-3 border-b border-gray-100">
+                <div className="flex items-center justify-between px-1 mb-2">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">エピック</p>
+                </div>
+                <button
+                  onClick={() => setView("all-epics")}
+                  className={`w-full text-left flex items-center justify-between px-2 py-1.5 mb-1 rounded-lg text-sm transition-colors ${
+                    view === "all-epics"
+                      ? "bg-indigo-50 text-indigo-700 font-medium"
+                      : "text-gray-500 hover:bg-gray-50"
+                  }`}
+                >
+                  <span>エピック管理</span>
+                  <span className="text-xs text-gray-400">{epics.length}</span>
+                </button>
+                <div className="space-y-0.5">
+                  {epics.map((epic) => (
+                    <button
+                      key={epic.id}
+                      onClick={() => setView({ kind: "epic", id: epic.id })}
+                      className={`w-full text-left flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-sm transition-colors ${
+                        isEpicView(view) && view.id === epic.id
+                          ? "bg-indigo-50 text-indigo-700"
+                          : "text-gray-700 hover:bg-gray-50"
+                      }`}
+                    >
+                      <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ backgroundColor: epic.color }} />
+                      <span className="flex-1 truncate text-sm font-medium">{epic.title}</span>
+                      <span className="text-xs text-gray-400 flex-shrink-0">
+                        {tasks.filter((t) => t.epicId === epic.id && t.parentId === null).length}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {/* スプリント（ナビゲーションのみ・管理はタスクリストビューから） */}
               <div className="p-3">
                 <div className="flex items-center justify-between px-1 mb-2">
@@ -1459,7 +1618,7 @@ export default function Home() {
             )}
 
             {/* リストビュー（通常） */}
-            {displayMode === "list" && view !== "all-sprints" && view !== "all-projects" && (
+            {displayMode === "list" && view !== "all-sprints" && view !== "all-projects" && view !== "all-epics" && !isEpicView(view) && (
               <div className="flex-1 overflow-y-auto px-4 pb-4">
                 {filtered.length === 0 ? (
                   <div className="text-center py-16 text-gray-400">タスクがありません</div>
@@ -1478,6 +1637,7 @@ export default function Home() {
                           onToggleDone={(e) => toggleDone(task, e)}
                           projects={projects}
                           sprints={sprints}
+                          epics={epics}
                           onChangeSprint={handleChangeSprint}
                           allTasks={tasks}
                           onShowOnly={showTaskOnly}
@@ -1546,7 +1706,12 @@ export default function Home() {
                 ) : (
                   <SortableContext items={sprints.map((s) => s.id)} strategy={verticalListSortingStrategy}>
                     <div className="space-y-3">
-                      {sprints.map((sprint) => {
+                      {(() => {
+                        const overTaskId = typeof activeOverId === "string" && activeOverId.startsWith("task-")
+                          ? parseInt(activeOverId.replace("task-", ""))
+                          : null;
+                        const overTaskSprintId = overTaskId ? tasks.find((t) => t.id === overTaskId)?.sprintId : null;
+                        return sprints.map((sprint) => {
                         const sprintTasks = filtered.filter((t) => t.sprintId === sprint.id);
                         return (
                           <SortableSprintSection
@@ -1556,7 +1721,9 @@ export default function Home() {
                             selectedTaskId={selectedTaskId}
                             projects={projects}
                             sprints={sprints}
+                            epics={epics}
                             allTasks={tasks}
+                            isTaskOver={isTaskDragging && overTaskSprintId === sprint.id}
                             onSelectTask={selectTask}
                             onToggleDone={toggleDone}
                             onChangeSprint={handleChangeSprint}
@@ -1574,7 +1741,8 @@ export default function Home() {
                             onDelete={() => deleteSprint(sprint)}
                           />
                         );
-                      })}
+                        });
+                      })()}
                     </div>
                   </SortableContext>
                 )}
@@ -1614,6 +1782,7 @@ export default function Home() {
                                   onToggleDone={(e) => toggleDone(task, e)}
                                   projects={projects}
                                   sprints={sprints}
+                                  epics={epics}
                                   onChangeSprint={handleChangeSprint}
                                   allTasks={tasks}
                                   onShowOnly={showTaskOnly}
@@ -1661,6 +1830,7 @@ export default function Home() {
                                 onToggleDone={(e) => toggleDone(task, e)}
                                 projects={projects}
                                 sprints={sprints}
+                                epics={epics}
                                 onChangeSprint={handleChangeSprint}
                                 allTasks={tasks}
                                 onShowOnly={showTaskOnly}
@@ -1674,6 +1844,207 @@ export default function Home() {
                 })}
                 {projects.every((p) => filtered.filter((t) => t.projectId === p.id).length === 0) && (
                   <div className="text-center py-16 text-gray-400">タスクがありません</div>
+                )}
+              </div>
+            )}
+
+            {/* リストビュー（エピック管理） */}
+            {displayMode === "list" && view === "all-epics" && (
+              <div className="flex-1 overflow-y-auto px-4 pb-4">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs text-gray-400">{epics.length} エピック</p>
+                  <button
+                    onClick={() => setShowEpicForm((v) => !v)}
+                    className="text-sm text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-1"
+                  >
+                    {showEpicForm ? "キャンセル" : "+ エピックを追加"}
+                  </button>
+                </div>
+
+                {showEpicForm && (
+                  <form onSubmit={handleEpicSubmit} className="mb-4 p-4 bg-white rounded-xl border border-gray-200 space-y-3">
+                    <p className="text-sm font-semibold text-gray-700">新しいエピック</p>
+                    <input
+                      type="text"
+                      value={epicForm.title}
+                      onChange={(e) => setEpicForm({ ...epicForm, title: e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      placeholder="エピック名 *"
+                      autoFocus
+                    />
+                    <select
+                      value={epicForm.projectId ?? ""}
+                      onChange={(e) => setEpicForm({ ...epicForm, projectId: e.target.value ? parseInt(e.target.value) : null })}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    >
+                      <option value="">プロジェクトなし</option>
+                      {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                    <div className="flex gap-1.5 flex-wrap">
+                      {EPIC_COLORS.map((color) => (
+                        <button
+                          key={color}
+                          type="button"
+                          onClick={() => setEpicForm({ ...epicForm, color })}
+                          className={`w-5 h-5 rounded-full flex-shrink-0 transition-transform ${
+                            epicForm.color === color ? "scale-110 ring-2 ring-offset-1 ring-gray-400" : ""
+                          }`}
+                          style={{ backgroundColor: color }}
+                        />
+                      ))}
+                    </div>
+                    <div className="flex gap-2 pt-1">
+                      <button type="button" onClick={() => { setShowEpicForm(false); setEpicForm(EMPTY_EPIC_FORM); }} className="flex-1 border border-gray-300 text-gray-600 rounded-lg px-4 py-2 text-sm hover:bg-gray-50">キャンセル</button>
+                      <button type="submit" className="flex-1 bg-indigo-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-indigo-700">追加</button>
+                    </div>
+                  </form>
+                )}
+
+                {(() => {
+                  const noEpicTasks = filtered.filter((t) => t.epicId === null);
+                  const overTaskIdForEpic = typeof activeOverId === "string" && activeOverId.startsWith("task-")
+                    ? parseInt(activeOverId.replace("task-", ""))
+                    : null;
+                  const overTaskEpicId = overTaskIdForEpic ? tasks.find((t) => t.id === overTaskIdForEpic)?.epicId : undefined;
+                  return (
+                    <div className="space-y-3">
+                      {epics.map((epic) => {
+                        const epicTasks = filtered.filter((t) => t.epicId === epic.id);
+                        const epicProject = epic.projectId ? projects.find((p) => p.id === epic.projectId) : null;
+                        const isEpicOver = isTaskDragging && (activeOverId === `epic-${epic.id}` || overTaskEpicId === epic.id);
+                        return (
+                          <EpicDropZone key={epic.id} epicId={epic.id}>
+                          <div className={`bg-white rounded-xl overflow-hidden transition-all ${isEpicOver ? "border-2 border-dashed border-indigo-400" : "border border-gray-200"}`}>
+                            <div
+                              className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 cursor-pointer hover:bg-gray-50/60 transition-colors"
+                              onClick={() => setView({ kind: "epic", id: epic.id })}
+                            >
+                              <span className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: epic.color }} />
+                              <h3 className="text-sm font-semibold text-gray-700 flex-1 truncate">{epic.title}</h3>
+                              {epicProject && (
+                                <span className="flex items-center gap-1 flex-shrink-0">
+                                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: epicProject.color }} />
+                                  <span className="text-xs text-gray-400 truncate max-w-[80px]">{epicProject.name}</span>
+                                </span>
+                              )}
+                              <span className="text-xs text-gray-400 ml-auto flex-shrink-0">{epicTasks.length} 件</span>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setEditingEpic(epic); setEditEpicForm({ title: epic.title, description: epic.description ?? "", color: epic.color, projectId: epic.projectId }); }}
+                                className="p-1 text-gray-400 hover:text-indigo-600 rounded transition-colors flex-shrink-0"
+                                title="編集"
+                              >
+                                <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                                  <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                                </svg>
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); deleteEpic(epic); }}
+                                className="p-1 text-gray-400 hover:text-red-500 rounded transition-colors flex-shrink-0"
+                                title="削除"
+                              >
+                                <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                                  <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                                </svg>
+                              </button>
+                            </div>
+                            {epicTasks.length === 0 ? (
+                              <p className="text-sm text-gray-400 py-4 text-center">ストーリーなし</p>
+                            ) : (
+                              <div className="p-2">
+                                <SortableContext items={epicTasks.map((t) => `task-${t.id}`)} strategy={verticalListSortingStrategy}>
+                                  <ul className="space-y-1.5">
+                                    {epicTasks.map((task) => (
+                                      <DraggableTaskCard
+                                        key={task.id}
+                                        task={task}
+                                        isSelected={selectedTaskId === task.id}
+                                        onSelect={() => selectTask(task)}
+                                        onToggleDone={(e) => toggleDone(task, e)}
+                                        projects={projects}
+                                        sprints={sprints}
+                                        epics={epics}
+                                        onChangeSprint={handleChangeSprint}
+                                        allTasks={tasks}
+                                        onShowOnly={showTaskOnly}
+                                      />
+                                    ))}
+                                  </ul>
+                                </SortableContext>
+                              </div>
+                            )}
+                          </div>
+                          </EpicDropZone>
+                        );
+                      })}
+
+                      {/* エピックなし */}
+                      {(() => { const isNoEpicOver = isTaskDragging && (activeOverId === "epic-null" || overTaskEpicId === null); return (
+                      <EpicDropZone epicId={null}>
+                      <div className={`bg-white rounded-xl overflow-hidden transition-all ${isNoEpicOver ? "border-2 border-dashed border-indigo-400" : "border border-dashed border-gray-300"}`}>
+                        <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/40">
+                          <span className="w-3 h-3 rounded-sm flex-shrink-0 bg-gray-300" />
+                          <h3 className="text-sm font-semibold text-gray-400 flex-1">エピックなし</h3>
+                          <span className="text-xs text-gray-400 ml-auto flex-shrink-0">{noEpicTasks.length} 件</span>
+                        </div>
+                        {noEpicTasks.length === 0 ? (
+                          <p className="text-sm text-gray-300 py-4 text-center">すべてのストーリーはエピックに属しています</p>
+                        ) : (
+                          <div className="p-2">
+                            <SortableContext items={noEpicTasks.map((t) => `task-${t.id}`)} strategy={verticalListSortingStrategy}>
+                              <ul className="space-y-1.5">
+                                {noEpicTasks.map((task) => (
+                                  <DraggableTaskCard
+                                    key={task.id}
+                                    task={task}
+                                    isSelected={selectedTaskId === task.id}
+                                    onSelect={() => selectTask(task)}
+                                    onToggleDone={(e) => toggleDone(task, e)}
+                                    projects={projects}
+                                    sprints={sprints}
+                                    epics={epics}
+                                    onChangeSprint={handleChangeSprint}
+                                    allTasks={tasks}
+                                    onShowOnly={showTaskOnly}
+                                  />
+                                ))}
+                              </ul>
+                            </SortableContext>
+                          </div>
+                        )}
+                      </div>
+                      </EpicDropZone>
+                      ); })()}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* リストビュー（単一エピック：ストーリー一覧） */}
+            {displayMode === "list" && isEpicView(view) && currentEpic && (
+              <div className="flex-1 overflow-y-auto px-4 pb-4">
+                {filtered.length === 0 ? (
+                  <div className="text-center py-16 text-gray-400">ストーリーがありません</div>
+                ) : (
+                  <SortableContext items={filtered.map((t) => `task-${t.id}`)} strategy={verticalListSortingStrategy}>
+                    <ul className="space-y-2">
+                      {filtered.map((task) => (
+                        <DraggableTaskCard
+                          key={task.id}
+                          task={task}
+                          isSelected={selectedTaskId === task.id}
+                          onSelect={() => selectTask(task)}
+                          onToggleDone={(e) => toggleDone(task, e)}
+                          projects={projects}
+                          sprints={sprints}
+                          epics={epics}
+                          onChangeSprint={handleChangeSprint}
+                          allTasks={tasks}
+                          onShowOnly={showTaskOnly}
+                        />
+                      ))}
+                    </ul>
+                  </SortableContext>
                 )}
               </div>
             )}
@@ -1817,6 +2188,26 @@ export default function Home() {
                         >
                           <option value="backlog">バックログ</option>
                           {sprints.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">エピック</label>
+                        <select
+                          value={selectedTask?.epicId ?? ""}
+                          onChange={async (e) => {
+                            const epicId = e.target.value ? parseInt(e.target.value) : null;
+                            if (!selectedTask) return;
+                            await fetch(`/api/tasks/${selectedTask.id}`, {
+                              method: "PATCH",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ epicId }),
+                            });
+                            fetchAll();
+                          }}
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                        >
+                          <option value="">なし</option>
+                          {epics.map((ep) => <option key={ep.id} value={ep.id}>{ep.title}</option>)}
                         </select>
                       </div>
                       <div>
@@ -2101,6 +2492,27 @@ export default function Home() {
                     </select>
                   </div>
 
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">エピック</label>
+                    <select
+                      value={selectedTask?.epicId ?? ""}
+                      onChange={async (e) => {
+                        const epicId = e.target.value ? parseInt(e.target.value) : null;
+                        if (!selectedTask) return;
+                        await fetch(`/api/tasks/${selectedTask.id}`, {
+                          method: "PATCH",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ epicId }),
+                        });
+                        fetchAll();
+                      }}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    >
+                      <option value="">なし</option>
+                      {epics.map((ep) => <option key={ep.id} value={ep.id}>{ep.title}</option>)}
+                    </select>
+                  </div>
+
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">優先度</label>
@@ -2318,6 +2730,58 @@ export default function Home() {
           )}
         </div>
       </div>
+
+      {/* エピック編集モーダル */}
+      {editingEpic && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setEditingEpic(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-base font-bold text-gray-800 mb-4">エピックを編集</h2>
+            <form onSubmit={handleUpdateEpic} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">エピック名 <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  value={editEpicForm.title}
+                  onChange={(e) => setEditEpicForm({ ...editEpicForm, title: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">プロジェクト</label>
+                <select
+                  value={editEpicForm.projectId ?? ""}
+                  onChange={(e) => setEditEpicForm({ ...editEpicForm, projectId: e.target.value ? parseInt(e.target.value) : null })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">なし</option>
+                  {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">カラー</label>
+                <div className="flex gap-1.5 flex-wrap">
+                  {EPIC_COLORS.map((color) => (
+                    <button
+                      key={color}
+                      type="button"
+                      onClick={() => setEditEpicForm({ ...editEpicForm, color })}
+                      className={`w-6 h-6 rounded-full flex-shrink-0 transition-transform ${
+                        editEpicForm.color === color ? "scale-110 ring-2 ring-offset-1 ring-gray-400" : ""
+                      }`}
+                      style={{ backgroundColor: color }}
+                    />
+                  ))}
+                </div>
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button type="button" onClick={() => setEditingEpic(null)} className="flex-1 border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">キャンセル</button>
+                <button type="submit" className="flex-1 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors">保存</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* スプリント編集モーダル */}
       {editingSprint && (

@@ -31,6 +31,7 @@ export async function POST(request: Request) {
       dueDate: body.dueDate ? new Date(body.dueDate) : null,
       sprintId: body.sprintId ?? null,
       projectId: body.projectId ?? null,
+      epicId: body.epicId ?? null,
       parentId: body.parentId ?? null,
       taskNumber,
       order: count,

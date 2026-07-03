@@ -15,6 +15,20 @@ model Project {
   color       String    @default("#6366f1")
   createdAt   DateTime  @default(now())
   tasks       Task[]
+  epics       Epic[]
+}
+
+model Epic {
+  id          Int       @id @default(autoincrement())
+  title       String
+  description String?
+  status      String    @default("open")
+  color       String    @default("#818cf8")
+  projectId   Int?
+  project     Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  tasks       Task[]
+  order       Int       @default(0)
+  createdAt   DateTime  @default(now())
 }
 
 model Sprint {
@@ -44,6 +58,8 @@ model Task {
   order       Int       @default(0)
   createdAt   DateTime  @default(now())
   comments    Comment[]
+  epicId      Int?
+  epic        Epic?     @relation(fields: [epicId], references: [id], onDelete: SetNull)
   parentId    Int?
   parent      Task?     @relation("Subtasks", fields: [parentId], references: [id], onDelete: Cascade)
   subtasks    Task[]    @relation("Subtasks")

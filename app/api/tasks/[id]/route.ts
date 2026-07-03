@@ -57,6 +57,7 @@ export async function PATCH(
       }),
       ...(body.sprintId !== undefined && { sprintId: body.sprintId }),
       ...(body.projectId !== undefined && { projectId: body.projectId }),
+      ...(body.epicId !== undefined && { epicId: body.epicId }),
       ...(body.parentId !== undefined && { parentId: body.parentId }),
       ...taskNumberUpdate,
     },
