@@ -304,61 +304,22 @@ function GripIcon() {
   );
 }
 
-function SortableSprintItem({
-  sprint, isSelected, taskCount, onSelect, onDelete, isTaskOver,
+function SprintNavItem({
+  sprint, isSelected, taskCount,
 }: {
   sprint: Sprint;
   isSelected: boolean;
   taskCount: number;
-  onSelect: () => void;
-  onDelete: (e: React.MouseEvent) => void;
-  isTaskOver: boolean;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: sprint.id });
-
+  const { setNodeRef } = useDroppable({ id: sprint.id });
   return (
-    <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }}>
-      <div
-        onClick={onSelect}
-        className={`group flex items-start gap-1 px-2 py-2 rounded-lg cursor-pointer transition-all ${
-          isTaskOver ? "ring-2 ring-indigo-400 bg-indigo-50"
-            : isSelected ? "bg-indigo-50 text-indigo-700"
-            : "text-gray-700 hover:bg-gray-50"
-        }`}
-      >
-        <button
-          {...attributes} {...listeners}
-          onClick={(e) => e.stopPropagation()}
-          tabIndex={-1}
-          className="mt-1 text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing flex-shrink-0 touch-none focus:outline-none"
-        >
-          <GripIcon />
-        </button>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between gap-1">
-            <span className="text-sm font-medium truncate">{sprint.name}</span>
-            <span className="text-xs text-gray-400 flex-shrink-0">{taskCount}</span>
-          </div>
-          <div className="mt-0.5">
-            <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${SPRINT_STATUS_COLOR[sprint.status]}`}>
-              {SPRINT_STATUS_LABEL[sprint.status]}
-            </span>
-          </div>
-          {(sprint.startDate || sprint.endDate) && (
-            <div className="text-xs text-gray-400 mt-0.5">
-              {formatShortDate(sprint.startDate)}〜{formatShortDate(sprint.endDate)}
-            </div>
-          )}
-        </div>
-        <button
-          onClick={onDelete}
-          className="opacity-0 group-hover:opacity-100 mt-0.5 text-gray-400 hover:text-red-500 transition-opacity flex-shrink-0"
-        >
-          <svg viewBox="0 0 12 12" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <path d="M2 2l8 8M10 2l-8 8" />
-          </svg>
-        </button>
+    <div ref={setNodeRef}>
+      <div className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg cursor-pointer transition-all ${
+        isSelected ? "bg-indigo-50 text-indigo-700" : "text-gray-700 hover:bg-gray-50"
+      }`}>
+        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${sprint.status === "active" ? "bg-green-400" : sprint.status === "planning" ? "bg-blue-300" : "bg-gray-300"}`} />
+        <span className="text-sm font-medium flex-1 truncate">{sprint.name}</span>
+        <span className="text-xs text-gray-400 flex-shrink-0">{taskCount}</span>
       </div>
     </div>
   );
@@ -893,7 +854,7 @@ export default function Home() {
   const currentProject = isProjectView(view) ? projects.find((p) => p.id === view.id) : null;
   const currentTaskInView = isTaskView(view) ? tasks.find((t) => t.id === view.id) : null;
   const viewTitle = view === "backlog" ? "バックログ"
-    : view === "all-sprints" ? "すべてのスプリント"
+    : view === "all-sprints" ? "スプリント管理"
     : view === "all-projects" ? "すべてのプロジェクト"
     : isTaskView(view)
     ? (currentTaskInView ? `${getTaskKey(currentTaskInView, projects) ?? "#" + currentTaskInView.id}` : "")
@@ -1284,13 +1245,16 @@ export default function Home() {
         </header>
 
         <div className="flex flex-1 overflow-hidden">
-          {/* スプリントビュー */}
+          {/* ナビゲーション */}
           <aside className={`${sidebarCollapsed ? "w-10" : "w-56"} transition-all duration-200 ease-in-out border-r border-gray-200 bg-white flex-shrink-0 flex flex-col overflow-hidden`}>
-            {/* 開閉ボタン */}
-            <div className={`flex-shrink-0 flex border-b border-gray-100 ${sidebarCollapsed ? "justify-center py-2.5" : "justify-end pr-2 py-1.5"}`}>
+            {/* ヘッダー：ラベル + 開閉ボタン */}
+            <div className={`flex-shrink-0 flex items-center border-b border-gray-100 ${sidebarCollapsed ? "justify-center py-2.5" : "px-3 py-1.5"}`}>
+              {!sidebarCollapsed && (
+                <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide flex-1">ナビゲーション</span>
+              )}
               <button
                 onClick={() => setSidebarCollapsed((v) => !v)}
-                title={sidebarCollapsed ? "サイドバーを開く" : "サイドバーを閉じる"}
+                title={sidebarCollapsed ? "ナビゲーションを開く" : "ナビゲーションを閉じる"}
                 className="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
               >
                 <svg viewBox="0 0 16 16" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1384,68 +1348,37 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* スプリント */}
+              {/* スプリント（ナビゲーションのみ・管理はタスクリストビューから） */}
               <div className="p-3">
                 <div className="flex items-center justify-between px-1 mb-2">
                   <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">スプリント</p>
-                  <button onClick={() => setShowSprintForm(true)} className="text-xs text-indigo-600 hover:text-indigo-800 font-medium">+ 追加</button>
                 </div>
-
-                {showSprintForm && (
-                  <form onSubmit={handleSprintSubmit} className="mb-3 p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-2">
-                    <input
-                      type="text"
-                      value={sprintForm.name}
-                      onChange={(e) => setSprintForm({ ...sprintForm, name: e.target.value })}
-                      className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                      placeholder="スプリント名"
-                      autoFocus
-                    />
-                    <div className="grid grid-cols-2 gap-1">
-                      <input type="date" value={sprintForm.startDate} onChange={(e) => setSprintForm({ ...sprintForm, startDate: e.target.value })} className="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-900 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
-                      <input type="date" value={sprintForm.endDate} onChange={(e) => setSprintForm({ ...sprintForm, endDate: e.target.value })} className="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-900 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
-                    </div>
-                    <select value={sprintForm.status} onChange={(e) => setSprintForm({ ...sprintForm, status: e.target.value as SprintStatus })} className="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-900 focus:outline-none focus:ring-1 focus:ring-indigo-500">
-                      <option value="planning">計画中</option>
-                      <option value="active">アクティブ</option>
-                      <option value="completed">完了</option>
-                    </select>
-                    <div className="flex gap-1 pt-1">
-                      <button type="submit" className="flex-1 bg-indigo-600 text-white rounded px-2 py-1.5 text-xs font-medium hover:bg-indigo-700">追加</button>
-                      <button type="button" onClick={() => { setShowSprintForm(false); setSprintForm(EMPTY_SPRINT_FORM); }} className="flex-1 border border-gray-300 text-gray-600 rounded px-2 py-1.5 text-xs hover:bg-gray-50">キャンセル</button>
-                    </div>
-                  </form>
-                )}
-
-                {sprints.length > 0 && (
-                  <button
-                    onClick={() => setView("all-sprints")}
-                    className={`w-full text-left flex items-center justify-between px-2 py-1.5 mb-1 rounded-lg text-sm transition-colors ${
-                      view === "all-sprints"
-                        ? "bg-indigo-50 text-indigo-700 font-medium"
-                        : "text-gray-500 hover:bg-gray-50"
-                    }`}
-                  >
-                    <span>すべてのスプリント</span>
-                    <span className="text-xs text-gray-400">{tasks.filter((t) => t.sprintId !== null && t.parentId === null).length}</span>
-                  </button>
-                )}
-                {sprints.length === 0 && !showSprintForm && (
-                  <p className="text-xs text-gray-400 px-1 py-2">スプリントがありません</p>
-                )}
-                <SortableContext items={sprints.map((s) => s.id)} strategy={verticalListSortingStrategy}>
+                <button
+                  onClick={() => setView("all-sprints")}
+                  className={`w-full text-left flex items-center justify-between px-2 py-1.5 mb-1 rounded-lg text-sm transition-colors ${
+                    view === "all-sprints"
+                      ? "bg-indigo-50 text-indigo-700 font-medium"
+                      : "text-gray-500 hover:bg-gray-50"
+                  }`}
+                >
+                  <span>スプリント管理</span>
+                  <span className="text-xs text-gray-400">{sprints.length}</span>
+                </button>
+                <div className="space-y-0.5">
                   {sprints.map((sprint) => (
-                    <SortableSprintItem
+                    <button
                       key={sprint.id}
-                      sprint={sprint}
-                      isSelected={isSprintView(view) && view.id === sprint.id}
-                      taskCount={tasks.filter((t) => t.sprintId === sprint.id && t.parentId === null).length}
-                      onSelect={() => setView({ kind: "sprint", id: sprint.id })}
-                      onDelete={(e) => { e.stopPropagation(); deleteSprint(sprint); }}
-                      isTaskOver={isTaskDragging && activeOverId === sprint.id}
-                    />
+                      onClick={() => setView({ kind: "sprint", id: sprint.id })}
+                      className="w-full"
+                    >
+                      <SprintNavItem
+                        sprint={sprint}
+                        isSelected={isSprintView(view) && view.id === sprint.id}
+                        taskCount={tasks.filter((t) => t.sprintId === sprint.id && t.parentId === null).length}
+                      />
+                    </button>
                   ))}
-                </SortableContext>
+                </div>
               </div>
             </div>
 
