@@ -492,51 +492,55 @@ function DraggableTaskCard({
           </svg>
         )}
       </button>
-      <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
-        <span className={`font-medium text-sm text-gray-800 ${task.done ? "line-through text-gray-400" : ""}`}>
+      <div className="flex-1 min-w-0 flex items-center gap-2 overflow-hidden">
+        {/* タイトル：あふれたら三点リード */}
+        <span className={`font-medium text-sm truncate min-w-0 ${task.done ? "line-through text-gray-400" : "text-gray-800"}`}>
           {task.title}
         </span>
-        {taskKey && (
-          <span
-            onClick={(e) => { e.stopPropagation(); onShowOnly(task); }}
-            onPointerDown={(e) => e.stopPropagation()}
-            className="text-xs font-mono text-gray-400 bg-gray-100 hover:bg-indigo-100 hover:text-indigo-600 px-1.5 py-0.5 rounded flex-shrink-0 cursor-pointer transition-colors"
-            title="この課題のみを表示"
-          >
-            {taskKey}
+        {/* バッジ類：右寄せ・縮まない */}
+        <div className="ml-auto flex items-center gap-1.5 flex-shrink-0">
+          {taskKey && (
+            <span
+              onClick={(e) => { e.stopPropagation(); onShowOnly(task); }}
+              onPointerDown={(e) => e.stopPropagation()}
+              className="text-xs font-mono text-gray-400 bg-gray-100 hover:bg-indigo-100 hover:text-indigo-600 px-1.5 py-0.5 rounded cursor-pointer transition-colors"
+              title="この課題のみを表示"
+            >
+              {taskKey}
+            </span>
+          )}
+          <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${TASK_STATUS_COLOR[task.status as TaskStatus]}`}>
+            {TASK_STATUS_LABEL[task.status as TaskStatus]}
           </span>
-        )}
-        <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${TASK_STATUS_COLOR[task.status as TaskStatus]}`}>
-          {TASK_STATUS_LABEL[task.status as TaskStatus]}
-        </span>
-        <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${PRIORITY_COLOR[task.priority as Priority]}`}>
-          {PRIORITY_LABEL[task.priority as Priority]}
-        </span>
-        {project && (
-          <span className="flex items-center gap-1 flex-shrink-0">
-            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: project.color }} />
-            <span className="text-xs text-gray-500 truncate max-w-[80px]">{project.name}</span>
+          <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${PRIORITY_COLOR[task.priority as Priority]}`}>
+            {PRIORITY_LABEL[task.priority as Priority]}
           </span>
-        )}
-        {subtasks.length > 0 && (
-          <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 flex items-center gap-1 flex-shrink-0">
-            <svg viewBox="0 0 12 12" className="w-2.5 h-2.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 1.5v6a1.5 1.5 0 0 0 1.5 1.5H9" />
-              <path d="M6.5 6.5L9 9l-2.5 2.5" />
-            </svg>
-            {subtasks.filter((s) => s.done).length}/{subtasks.length}
-          </span>
-        )}
-        {task.dueDate && (
-          <span className="text-xs text-gray-400 flex-shrink-0">期限: {formatDate(task.dueDate)}</span>
-        )}
+          {project && (
+            <span className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: project.color }} />
+              <span className="text-xs text-gray-500 max-w-[64px] truncate">{project.name}</span>
+            </span>
+          )}
+          {subtasks.length > 0 && (
+            <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 flex items-center gap-1">
+              <svg viewBox="0 0 12 12" className="w-2.5 h-2.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 1.5v6a1.5 1.5 0 0 0 1.5 1.5H9" />
+                <path d="M6.5 6.5L9 9l-2.5 2.5" />
+              </svg>
+              {subtasks.filter((s) => s.done).length}/{subtasks.length}
+            </span>
+          )}
+          {task.dueDate && (
+            <span className="text-xs text-gray-400">期限: {formatDate(task.dueDate)}</span>
+          )}
+        </div>
         {/* スプリント選択 */}
-          <div
-            ref={sprintMenuRef}
-            className="relative"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => e.stopPropagation()}
-          >
+        <div
+          ref={sprintMenuRef}
+          className="relative flex-shrink-0"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
             <button
               onClick={() => setShowSprintMenu((v) => !v)}
               className={`text-xs px-1.5 py-0.5 rounded flex items-center gap-1 transition-colors ${
