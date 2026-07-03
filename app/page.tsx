@@ -1574,6 +1574,54 @@ export default function Home() {
                     </div>
                   </SortableContext>
                 )}
+
+                {/* バックログ */}
+                {(() => {
+                  const backlogTasks = tasks.filter((t) =>
+                    t.sprintId === null &&
+                    t.parentId === null &&
+                    (filter === "all" || (filter === "active" ? !t.done : t.done))
+                  );
+                  return (
+                    <div className="mt-3 bg-white rounded-xl border border-gray-200 overflow-hidden">
+                      <button
+                        onClick={() => setView("backlog")}
+                        className="w-full flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/60 text-left hover:bg-gray-100 transition-colors"
+                      >
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 text-gray-400 flex-shrink-0">
+                          <rect x="1" y="1" width="14" height="14" rx="2" />
+                          <path d="M4 5h8M4 8h6M4 11h4" />
+                        </svg>
+                        <h3 className="text-sm font-semibold text-gray-700">バックログ</h3>
+                        <span className="text-xs text-gray-400 ml-auto">{backlogTasks.length} 件</span>
+                      </button>
+                      {backlogTasks.length === 0 ? (
+                        <p className="text-sm text-gray-400 py-4 text-center">タスクなし</p>
+                      ) : (
+                        <div className="p-2">
+                          <SortableContext items={backlogTasks.map((t) => `task-${t.id}`)} strategy={verticalListSortingStrategy}>
+                            <ul className="space-y-1.5">
+                              {backlogTasks.map((task) => (
+                                <DraggableTaskCard
+                                  key={task.id}
+                                  task={task}
+                                  isSelected={selectedTaskId === task.id}
+                                  onSelect={() => selectTask(task)}
+                                  onToggleDone={(e) => toggleDone(task, e)}
+                                  projects={projects}
+                                  sprints={sprints}
+                                  onChangeSprint={handleChangeSprint}
+                                  allTasks={tasks}
+                                  onShowOnly={showTaskOnly}
+                                />
+                              ))}
+                            </ul>
+                          </SortableContext>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
