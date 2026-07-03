@@ -364,6 +364,93 @@ function SortableSprintItem({
   );
 }
 
+function SortableSprintSection({
+  sprint, sprintTasks, selectedTaskId, projects, sprints, allTasks,
+  onSelectTask, onToggleDone, onChangeSprint, onShowOnly, onEdit, onDelete, onNavigate,
+}: {
+  sprint: Sprint;
+  sprintTasks: Task[];
+  selectedTaskId: number | null;
+  projects: Project[];
+  sprints: Sprint[];
+  allTasks: Task[];
+  onSelectTask: (task: Task) => void;
+  onToggleDone: (task: Task, e: React.MouseEvent) => void;
+  onChangeSprint: (taskId: number, sprintId: number | null) => void;
+  onShowOnly: (task: Task) => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onNavigate: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: sprint.id });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 }}
+      className="bg-white rounded-xl border border-gray-200 overflow-hidden"
+    >
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/60">
+        <button
+          {...attributes} {...listeners}
+          onClick={(e) => e.stopPropagation()}
+          tabIndex={-1}
+          className="text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing flex-shrink-0 touch-none focus:outline-none"
+          title="ドラッグで並び替え"
+        >
+          <GripIcon />
+        </button>
+        <button onClick={onNavigate} className="flex-1 flex items-center gap-2 min-w-0 text-left">
+          <h3 className="text-sm font-semibold text-gray-700 truncate">{sprint.name}</h3>
+          <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${SPRINT_STATUS_COLOR[sprint.status as SprintStatus]}`}>
+            {SPRINT_STATUS_LABEL[sprint.status as SprintStatus]}
+          </span>
+          {(sprint.startDate || sprint.endDate) && (
+            <span className="text-xs text-gray-400 flex-shrink-0">
+              {formatShortDate(sprint.startDate)}〜{formatShortDate(sprint.endDate)}
+            </span>
+          )}
+        </button>
+        <span className="text-xs text-gray-400 flex-shrink-0">{sprintTasks.length} 件</span>
+        <button onClick={(e) => { e.stopPropagation(); onEdit(); }} className="p-1 text-gray-400 hover:text-indigo-600 rounded transition-colors" title="編集">
+          <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+            <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+          </svg>
+        </button>
+        <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="p-1 text-gray-400 hover:text-red-500 rounded transition-colors" title="削除">
+          <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+            <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+          </svg>
+        </button>
+      </div>
+      {sprintTasks.length === 0 ? (
+        <p className="text-sm text-gray-400 py-5 text-center">タスクなし</p>
+      ) : (
+        <div className="p-3">
+          <SortableContext items={sprintTasks.map((t) => `task-${t.id}`)} strategy={verticalListSortingStrategy}>
+            <ul className="space-y-2">
+              {sprintTasks.map((task) => (
+                <DraggableTaskCard
+                  key={task.id}
+                  task={task}
+                  isSelected={selectedTaskId === task.id}
+                  onSelect={() => onSelectTask(task)}
+                  onToggleDone={(e) => onToggleDone(task, e)}
+                  projects={projects}
+                  sprints={sprints}
+                  onChangeSprint={onChangeSprint}
+                  allTasks={allTasks}
+                  onShowOnly={onShowOnly}
+                />
+              ))}
+            </ul>
+          </SortableContext>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DraggableTaskCard({
   task, isSelected, onSelect, onToggleDone, projects, sprints, onChangeSprint, allTasks, onShowOnly,
 }: {
@@ -717,6 +804,9 @@ export default function Home() {
   const [showProjectForm, setShowProjectForm] = useState(false);
   const [projectForm, setProjectForm] = useState(EMPTY_PROJECT_FORM);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [editingSprint, setEditingSprint] = useState<Sprint | null>(null);
+  const [editSprintForm, setEditSprintForm] = useState(EMPTY_SPRINT_FORM);
+  const [showSprintFormMain, setShowSprintFormMain] = useState(false);
   const [showAdminModal, setShowAdminModal] = useState(false);
   type UpdateStatus = "idle" | "running" | "done" | "error";
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("idle");
@@ -994,6 +1084,23 @@ export default function Home() {
     e.stopPropagation();
     setEditingProject(project);
     setEditProjectForm({ name: project.name, key: project.key ?? "" });
+  }
+
+  async function handleUpdateSprint(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingSprint || !editSprintForm.name.trim()) return;
+    await fetch(`/api/sprints/${editingSprint.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: editSprintForm.name.trim(),
+        startDate: editSprintForm.startDate || null,
+        endDate: editSprintForm.endDate || null,
+        status: editSprintForm.status,
+      }),
+    });
+    setEditingSprint(null);
+    await fetchAll();
   }
 
   async function handleUpdateProject(e: React.FormEvent) {
@@ -1418,55 +1525,94 @@ export default function Home() {
               </div>
             )}
 
-            {/* リストビュー（すべてのスプリント：スプリントごとにグループ表示） */}
+            {/* リストビュー（すべてのスプリント：スプリント管理） */}
             {displayMode === "list" && view === "all-sprints" && (
-              <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-4">
-                {sprints.map((sprint) => {
-                  const sprintTasks = filtered.filter((t) => t.sprintId === sprint.id);
-                  return (
-                    <div key={sprint.id}>
-                      <div className="flex items-center gap-2 mb-2 sticky top-0 bg-gray-50 py-1 z-10">
-                        <h3 className="text-sm font-semibold text-gray-700">{sprint.name}</h3>
-                        <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${SPRINT_STATUS_COLOR[sprint.status as SprintStatus]}`}>
-                          {SPRINT_STATUS_LABEL[sprint.status as SprintStatus]}
-                        </span>
-                        {(sprint.startDate || sprint.endDate) && (
-                          <span className="text-xs text-gray-400">
-                            {formatShortDate(sprint.startDate)}〜{formatShortDate(sprint.endDate)}
-                          </span>
-                        )}
-                        <span className="text-xs text-gray-400 ml-auto">{sprintTasks.length} 件</span>
+              <div className="flex-1 overflow-y-auto px-4 pb-4">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-xs text-gray-400">{sprints.length} スプリント</p>
+                  <button
+                    onClick={() => setShowSprintFormMain((v) => !v)}
+                    className="text-sm text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-1"
+                  >
+                    {showSprintFormMain ? "キャンセル" : "+ スプリントを追加"}
+                  </button>
+                </div>
+
+                {showSprintFormMain && (
+                  <form
+                    onSubmit={async (e) => {
+                      await handleSprintSubmit(e);
+                      setShowSprintFormMain(false);
+                    }}
+                    className="mb-4 p-4 bg-white rounded-xl border border-gray-200 space-y-3"
+                  >
+                    <p className="text-sm font-semibold text-gray-700">新しいスプリント</p>
+                    <input
+                      type="text"
+                      value={sprintForm.name}
+                      onChange={(e) => setSprintForm({ ...sprintForm, name: e.target.value })}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      placeholder="スプリント名 *"
+                      autoFocus
+                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">開始日</label>
+                        <input type="date" value={sprintForm.startDate} onChange={(e) => setSprintForm({ ...sprintForm, startDate: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
                       </div>
-                      {sprintTasks.length === 0 ? (
-                        <p className="text-sm text-gray-400 py-3 text-center border border-dashed border-gray-200 rounded-xl">タスクなし</p>
-                      ) : (
-                        <SortableContext
-                          items={sprintTasks.map((t) => `task-${t.id}`)}
-                          strategy={verticalListSortingStrategy}
-                        >
-                          <ul className="space-y-2">
-                            {sprintTasks.map((task) => (
-                              <DraggableTaskCard
-                                key={task.id}
-                                task={task}
-                                isSelected={selectedTaskId === task.id}
-                                onSelect={() => selectTask(task)}
-                                onToggleDone={(e) => toggleDone(task, e)}
-                                projects={projects}
-                                sprints={sprints}
-                                onChangeSprint={handleChangeSprint}
-                                allTasks={tasks}
-                                onShowOnly={showTaskOnly}
-                              />
-                            ))}
-                          </ul>
-                        </SortableContext>
-                      )}
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">終了日</label>
+                        <input type="date" value={sprintForm.endDate} onChange={(e) => setSprintForm({ ...sprintForm, endDate: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                      </div>
                     </div>
-                  );
-                })}
-                {sprints.every((s) => filtered.filter((t) => t.sprintId === s.id).length === 0) && (
-                  <div className="text-center py-16 text-gray-400">タスクがありません</div>
+                    <select value={sprintForm.status} onChange={(e) => setSprintForm({ ...sprintForm, status: e.target.value as SprintStatus })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                      <option value="planning">計画中</option>
+                      <option value="active">アクティブ</option>
+                      <option value="completed">完了</option>
+                    </select>
+                    <div className="flex gap-2 pt-1">
+                      <button type="button" onClick={() => { setShowSprintFormMain(false); setSprintForm(EMPTY_SPRINT_FORM); }} className="flex-1 border border-gray-300 text-gray-600 rounded-lg px-4 py-2 text-sm hover:bg-gray-50">キャンセル</button>
+                      <button type="submit" className="flex-1 bg-indigo-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-indigo-700">追加</button>
+                    </div>
+                  </form>
+                )}
+
+                {sprints.length === 0 ? (
+                  <div className="text-center py-16 text-gray-400">スプリントがありません</div>
+                ) : (
+                  <SortableContext items={sprints.map((s) => s.id)} strategy={verticalListSortingStrategy}>
+                    <div className="space-y-3">
+                      {sprints.map((sprint) => {
+                        const sprintTasks = filtered.filter((t) => t.sprintId === sprint.id);
+                        return (
+                          <SortableSprintSection
+                            key={sprint.id}
+                            sprint={sprint}
+                            sprintTasks={sprintTasks}
+                            selectedTaskId={selectedTaskId}
+                            projects={projects}
+                            sprints={sprints}
+                            allTasks={tasks}
+                            onSelectTask={selectTask}
+                            onToggleDone={toggleDone}
+                            onChangeSprint={handleChangeSprint}
+                            onShowOnly={showTaskOnly}
+                            onNavigate={() => setView({ kind: "sprint", id: sprint.id })}
+                            onEdit={() => {
+                              setEditingSprint(sprint);
+                              setEditSprintForm({
+                                name: sprint.name,
+                                startDate: sprint.startDate ? sprint.startDate.slice(0, 10) : "",
+                                endDate: sprint.endDate ? sprint.endDate.slice(0, 10) : "",
+                                status: sprint.status as SprintStatus,
+                              });
+                            }}
+                            onDelete={() => deleteSprint(sprint)}
+                          />
+                        );
+                      })}
+                    </div>
+                  </SortableContext>
                 )}
               </div>
             )}
@@ -2160,6 +2306,61 @@ export default function Home() {
           )}
         </div>
       </div>
+
+      {/* スプリント編集モーダル */}
+      {editingSprint && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setEditingSprint(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-base font-bold text-gray-800 mb-4">スプリントを編集</h2>
+            <form onSubmit={handleUpdateSprint} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">スプリント名 <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  value={editSprintForm.name}
+                  onChange={(e) => setEditSprintForm({ ...editSprintForm, name: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  placeholder="スプリント名"
+                  autoFocus
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">開始日</label>
+                  <input type="date" value={editSprintForm.startDate} onChange={(e) => setEditSprintForm({ ...editSprintForm, startDate: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">終了日</label>
+                  <input type="date" value={editSprintForm.endDate} onChange={(e) => setEditSprintForm({ ...editSprintForm, endDate: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">ステータス</label>
+                <select value={editSprintForm.status} onChange={(e) => setEditSprintForm({ ...editSprintForm, status: e.target.value as SprintStatus })} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                  <option value="planning">計画中</option>
+                  <option value="active">アクティブ</option>
+                  <option value="completed">完了</option>
+                </select>
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setEditingSprint(null)}
+                  className="flex-1 border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+                >
+                  キャンセル
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
+                >
+                  保存
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* プロジェクト編集モーダル */}
       {editingProject && (
