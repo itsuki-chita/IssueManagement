@@ -37,5 +37,10 @@ export async function POST(request: Request) {
       order: count,
     },
   });
+  if (body.parentId) {
+    await prisma.taskActivity.create({
+      data: { taskId: body.parentId, field: "サブタスクを追加", oldValue: null, newValue: body.title },
+    });
+  }
   return NextResponse.json(task, { status: 201 });
 }
