@@ -15,38 +15,79 @@ model Project {
   color       String    @default("#6366f1")
   createdAt   DateTime  @default(now())
   tasks       Task[]
+  epics       Epic[]
 }
 
-model Sprint {
-  id        Int       @id @default(autoincrement())
-  name      String
-  startDate DateTime?
-  endDate   DateTime?
-  status    String    @default("planning")
-  order     Int       @default(0)
-  createdAt DateTime  @default(now())
-  tasks     Task[]
-}
-
-model Task {
+model Epic {
   id          Int       @id @default(autoincrement())
   title       String
   description String?
   status      String    @default("open")
-  done        Boolean   @default(false)
-  priority    String    @default("medium")
-  dueDate     DateTime?
-  sprintId    Int?
-  sprint      Sprint?   @relation(fields: [sprintId], references: [id])
+  color       String    @default("#818cf8")
   projectId   Int?
-  project     Project?  @relation(fields: [projectId], references: [id])
-  taskNumber  Int?
+  project     Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  tasks       Task[]
   order       Int       @default(0)
   createdAt   DateTime  @default(now())
+}
+
+model Sprint {
+  id          Int                @id @default(autoincrement())
+  name        String
+  startDate   DateTime?
+  endDate     DateTime?
+  status      String             @default("planning")
+  order       Int                @default(0)
+  closedAt    DateTime?
+  createdAt   DateTime           @default(now())
+  tasks       Task[]
+  taskRecords SprintTaskRecord[]
+}
+
+model SprintTaskRecord {
+  id                Int      @id @default(autoincrement())
+  sprintId          Int
+  sprint            Sprint   @relation(fields: [sprintId], references: [id], onDelete: Cascade)
+  taskId            Int
+  taskTitle         String
+  wasDone           Boolean
+  movedToSprintId   Int?
+  movedToSprintName String?
+  createdAt         DateTime @default(now())
+}
+
+model Task {
+  id          Int            @id @default(autoincrement())
+  title       String
+  description String?
+  status      String         @default("open")
+  done        Boolean        @default(false)
+  priority    String         @default("medium")
+  dueDate     DateTime?
+  sprintId    Int?
+  sprint      Sprint?        @relation(fields: [sprintId], references: [id])
+  projectId   Int?
+  project     Project?       @relation(fields: [projectId], references: [id])
+  taskNumber  Int?
+  order       Int            @default(0)
+  createdAt   DateTime       @default(now())
   comments    Comment[]
+  activities  TaskActivity[]
+  epicId      Int?
+  epic        Epic?          @relation(fields: [epicId], references: [id], onDelete: SetNull)
   parentId    Int?
-  parent      Task?     @relation("Subtasks", fields: [parentId], references: [id], onDelete: Cascade)
-  subtasks    Task[]    @relation("Subtasks")
+  parent      Task?          @relation("Subtasks", fields: [parentId], references: [id], onDelete: Cascade)
+  subtasks    Task[]         @relation("Subtasks")
+}
+
+model TaskActivity {
+  id        Int      @id @default(autoincrement())
+  taskId    Int
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  field     String
+  oldValue  String?
+  newValue  String?
+  createdAt DateTime @default(now())
 }
 
 model Comment {
