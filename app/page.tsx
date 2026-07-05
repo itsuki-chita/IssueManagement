@@ -35,7 +35,8 @@ type PanelMode = "empty" | "edit" | "create";
 type ViewState =
   | "all-sprints"
   | "all-epics"
-  | { kind: "task"; id: number };
+  | { kind: "task"; id: number }
+  | { kind: "search"; query: string };
 
 type Project = {
   id: number;
@@ -169,6 +170,10 @@ const EMPTY_EPIC_FORM = { title: "", description: "", color: "#818cf8", projectI
 
 function isTaskView(v: ViewState): v is { kind: "task"; id: number } {
   return typeof v === "object" && v.kind === "task";
+}
+
+function isSearchView(v: ViewState): v is { kind: "search"; query: string } {
+  return typeof v === "object" && v.kind === "search";
 }
 
 const URL_REGEX = /https?:\/\/[^\s<>"]+/g;
@@ -974,6 +979,9 @@ export default function Home() {
   const [epicForm, setEpicForm] = useState(EMPTY_EPIC_FORM);
   const [editingEpic, setEditingEpic] = useState<Epic | null>(null);
   const [editEpicForm, setEditEpicForm] = useState(EMPTY_EPIC_FORM);
+  const [searchInput, setSearchInput] = useState("");
+  const [searchResults, setSearchResults] = useState<Task[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
 
   const selectedTask = tasks.find((t) => t.id === selectedTaskId) ?? null;
   const isTaskDragging = !!activeDragId?.startsWith("task-");
@@ -1013,6 +1021,7 @@ export default function Home() {
 
   const viewedTasks = tasks.filter((t) => {
     if (isTaskView(view)) return t.id === view.id;
+    if (isSearchView(view)) return false;
     if (t.parentId !== null) return false;
     if (filterProjectId !== null && t.projectId !== filterProjectId) return false;
     if (filterEpicId !== null && t.epicId !== filterEpicId) return false;
@@ -1023,6 +1032,7 @@ export default function Home() {
   const currentTaskInView = isTaskView(view) ? tasks.find((t) => t.id === view.id) : null;
   const viewTitle = view === "all-sprints" ? "スプリントビュー"
     : view === "all-epics" ? "エピックビュー"
+    : isSearchView(view) ? `「${view.query}」の検索結果`
     : isTaskView(view)
     ? (currentTaskInView ? `${getTaskKey(currentTaskInView, projects) ?? "#" + currentTaskInView.id}` : "")
     : "";
@@ -1050,6 +1060,16 @@ export default function Home() {
     const res = await fetch(`/api/tasks/${taskId}/activities`);
     const data = await res.json();
     setActivities(data);
+  }
+
+  async function fetchSearch(q: string) {
+    setIsSearching(true);
+    setPreviousView(view);
+    setView({ kind: "search", query: q });
+    setMainMenu("tasks");
+    const res = await fetch(`/api/tasks/search?q=${encodeURIComponent(q)}`);
+    setSearchResults(await res.json());
+    setIsSearching(false);
   }
 
   function selectTask(task: Task) {
@@ -1523,6 +1543,28 @@ export default function Home() {
                 スプリント
               </button>
             </div>
+            <form
+              onSubmit={(e) => { e.preventDefault(); if (searchInput.trim()) fetchSearch(searchInput.trim()); }}
+              className="flex items-center gap-1.5"
+            >
+              <input
+                type="text"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder="タスクを検索..."
+                className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 w-52"
+              />
+              <button
+                type="submit"
+                className="border border-gray-300 bg-white text-gray-500 px-3 py-1.5 rounded-lg text-sm hover:bg-gray-50 hover:text-gray-700 transition-colors flex items-center gap-1"
+              >
+                <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="6.5" cy="6.5" r="4.5" />
+                  <line x1="10" y1="10" x2="14" y2="14" />
+                </svg>
+                検索
+              </button>
+            </form>
             <div className="flex items-center gap-2">
             <button
               onClick={openCreateForm}
@@ -1898,9 +1940,9 @@ export default function Home() {
           </aside>
 
           {/* メインコンテンツ */}
-          <div className={`flex-1 flex flex-col min-w-0 ${!isTaskView(view) && displayMode === "swimlane" ? "overflow-hidden" : "overflow-y-auto"}`}>
+          <div className={`flex-1 flex flex-col min-w-0 ${!isTaskView(view) && !isSearchView(view) && displayMode === "swimlane" ? "overflow-hidden" : "overflow-y-auto"}`}>
             {/* ヘッダー */}
-            {!isTaskView(view) && (
+            {!isTaskView(view) && !isSearchView(view) && (
             <div className="flex-shrink-0 px-4 pt-4 pb-3 flex items-center gap-2 flex-wrap">
               <h2 className="font-semibold text-gray-700">{viewTitle}</h2>
               {filterProjectId !== null && (() => {
@@ -1965,7 +2007,7 @@ export default function Home() {
             </div>
             )}
 
-            {!isTaskView(view) && (<>
+            {!isTaskView(view) && !isSearchView(view) && (<>
             {/* フィルター（リストのみ） */}
 
             {/* リストビュー（スプリント管理） */}
@@ -2319,6 +2361,90 @@ export default function Home() {
               </div>
             )}
             </>)}
+
+            {/* 検索結果 */}
+            {isSearchView(view) && (
+              <div className="flex-1 overflow-y-auto px-4 py-4">
+                <div className="flex items-center gap-3 mb-4">
+                  <h2 className="font-semibold text-gray-700">「{view.query}」の検索結果</h2>
+                  {!isSearching && (
+                    <span className="text-sm text-gray-400">{searchResults.length} 件</span>
+                  )}
+                  <button
+                    onClick={() => { setView(previousView); setSearchInput(""); setSearchResults([]); }}
+                    className="ml-auto text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1 transition-colors"
+                  >
+                    <svg viewBox="0 0 10 10" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                      <path d="M2 2l6 6M8 2l-6 6" />
+                    </svg>
+                    検索をクリア
+                  </button>
+                </div>
+                {isSearching ? (
+                  <p className="text-sm text-gray-400 text-center py-12">検索中...</p>
+                ) : searchResults.length === 0 ? (
+                  <p className="text-sm text-gray-400 text-center py-12">該当するタスクが見つかりませんでした</p>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {searchResults.map((task) => {
+                      const project = task.projectId ? projects.find((p) => p.id === task.projectId) : null;
+                      const epic = task.epicId ? epics.find((e) => e.id === task.epicId) : null;
+                      const sprint = task.sprintId ? sprints.find((s) => s.id === task.sprintId) : null;
+                      const taskKey = getTaskKey(task, projects);
+                      return (
+                        <li
+                          key={task.id}
+                          onClick={() => selectTask(task)}
+                          className={`bg-white rounded-lg border px-4 py-3 cursor-pointer transition-all flex items-center gap-3 ${
+                            selectedTaskId === task.id
+                              ? "border-indigo-400 ring-1 ring-indigo-400"
+                              : "border-gray-200 hover:border-indigo-200"
+                          }`}
+                        >
+                          <div className="w-20 flex-shrink-0">
+                            {taskKey && (
+                              <span
+                                onClick={(e) => { e.stopPropagation(); showTaskOnly(task); }}
+                                className="text-xs font-mono text-gray-400 bg-gray-100 hover:bg-indigo-100 hover:text-indigo-600 px-1.5 py-0.5 rounded cursor-pointer transition-colors"
+                                title="この課題のみを表示"
+                              >
+                                {taskKey}
+                              </span>
+                            )}
+                          </div>
+                          <span className={`text-sm font-medium flex-1 min-w-0 truncate ${task.done ? "line-through text-gray-400" : "text-gray-800"}`}>
+                            {task.title}
+                          </span>
+                          <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${TASK_STATUS_COLOR[task.status as TaskStatus]}`}>
+                            {TASK_STATUS_LABEL[task.status as TaskStatus]}
+                          </span>
+                          <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${PRIORITY_COLOR[task.priority as Priority]}`}>
+                            {PRIORITY_LABEL[task.priority as Priority]}
+                          </span>
+                          {epic && (
+                            <span className="flex items-center gap-1 flex-shrink-0">
+                              <span className="w-2 h-2 rounded-sm flex-shrink-0" style={{ backgroundColor: epic.color }} />
+                              <span className="text-xs text-gray-500 truncate max-w-[56px]">{epic.title}</span>
+                            </span>
+                          )}
+                          {project && (
+                            <span className="flex items-center gap-1 flex-shrink-0">
+                              <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: project.color }} />
+                              <span className="text-xs text-gray-400 truncate max-w-[64px]">{project.name}</span>
+                            </span>
+                          )}
+                          {sprint ? (
+                            <span className="text-xs text-gray-400 flex-shrink-0 truncate max-w-[80px]">{sprint.name}</span>
+                          ) : (
+                            <span className="text-xs text-gray-300 flex-shrink-0">バックログ</span>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            )}
 
             {/* タスク詳細画面 */}
             {isTaskView(view) && selectedTask && (
