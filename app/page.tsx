@@ -617,14 +617,15 @@ function DraggableTaskCard({
         {/* 課題キー：固定幅で揃える */}
         <div className="w-20 flex-shrink-0">
           {taskKey ? (
-            <span
-              onClick={(e) => { e.stopPropagation(); onShowOnly(task); }}
+            <a
+              href={`/tasks/${task.id}`}
+              onClick={(e) => { e.stopPropagation(); e.preventDefault(); onShowOnly(task); }}
               onPointerDown={(e) => e.stopPropagation()}
               className="text-xs font-mono text-gray-400 bg-gray-100 hover:bg-indigo-100 hover:text-indigo-600 px-1.5 py-0.5 rounded cursor-pointer transition-colors block truncate"
               title="この課題のみを表示"
             >
               {taskKey}
-            </span>
+            </a>
           ) : (
             <span className="block w-full" />
           )}
@@ -745,14 +746,15 @@ function SwimlaneCard({
           </p>
           <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
             {taskKey && (
-              <span
-                onClick={(e) => { e.stopPropagation(); onShowOnly(task); }}
+              <a
+                href={`/tasks/${task.id}`}
+                onClick={(e) => { e.stopPropagation(); e.preventDefault(); onShowOnly(task); }}
                 onPointerDown={(e) => e.stopPropagation()}
                 className="text-xs font-mono text-gray-400 bg-gray-100 hover:bg-indigo-100 hover:text-indigo-600 px-1.5 py-0.5 rounded flex-shrink-0 cursor-pointer transition-colors"
                 title="この課題のみを表示"
               >
                 {taskKey}
-              </span>
+              </a>
             )}
             <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${PRIORITY_COLOR[task.priority as Priority]}`}>
               {PRIORITY_LABEL[task.priority as Priority]}
@@ -2543,13 +2545,14 @@ export default function Home() {
                         >
                           <div className="w-20 flex-shrink-0">
                             {taskKey && (
-                              <span
-                                onClick={(e) => { e.stopPropagation(); showTaskOnly(task); }}
+                              <a
+                                href={`/tasks/${task.id}`}
+                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); showTaskOnly(task); }}
                                 className="text-xs font-mono text-gray-400 bg-gray-100 hover:bg-indigo-100 hover:text-indigo-600 px-1.5 py-0.5 rounded cursor-pointer transition-colors"
                                 title="この課題のみを表示"
                               >
                                 {taskKey}
-                              </span>
+                              </a>
                             )}
                           </div>
                           <span className={`text-sm font-medium flex-1 min-w-0 truncate ${task.done ? "line-through text-gray-400" : "text-gray-800"}`}>
@@ -2710,7 +2713,13 @@ export default function Home() {
                               </button>
                               <span className={`text-sm flex-1 min-w-0 truncate ${st.done ? "line-through text-gray-400" : "text-gray-700"}`}>
                                 {getTaskKey(st, projects) && (
-                                  <span className="font-mono text-xs text-gray-400 mr-2">{getTaskKey(st, projects)}</span>
+                                  <a
+                                    href={`/tasks/${st.id}`}
+                                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); showTaskOnly(st); }}
+                                    className="font-mono text-xs text-gray-400 mr-2 hover:text-indigo-500 transition-colors"
+                                  >
+                                    {getTaskKey(st, projects)}
+                                  </a>
                                 )}
                                 {st.title}
                               </span>
@@ -3048,13 +3057,14 @@ export default function Home() {
                   {panelMode === "edit" && selectedTask && (() => {
                     const key = getTaskKey(selectedTask, projects);
                     return key ? (
-                      <span
-                        onClick={() => showTaskOnly(selectedTask)}
+                      <a
+                        href={`/tasks/${selectedTask.id}`}
+                        onClick={(e) => { e.preventDefault(); showTaskOnly(selectedTask); }}
                         className="text-sm font-mono text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded border border-indigo-100 cursor-pointer transition-colors"
                         title="この課題のみを表示"
                       >
                         {key}
-                      </span>
+                      </a>
                     ) : null;
                   })()}
                 </div>
