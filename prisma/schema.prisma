@@ -57,27 +57,39 @@ model SprintTaskRecord {
 }
 
 model Task {
-  id          Int            @id @default(autoincrement())
+  id          Int               @id @default(autoincrement())
   title       String
   description String?
-  status      String         @default("open")
-  done        Boolean        @default(false)
-  priority    String         @default("medium")
+  status      String            @default("open")
+  done        Boolean           @default(false)
+  priority    String            @default("medium")
   dueDate     DateTime?
   sprintId    Int?
-  sprint      Sprint?        @relation(fields: [sprintId], references: [id])
+  sprint      Sprint?           @relation(fields: [sprintId], references: [id])
   projectId   Int?
-  project     Project?       @relation(fields: [projectId], references: [id])
+  project     Project?          @relation(fields: [projectId], references: [id])
   taskNumber  Int?
-  order       Int            @default(0)
-  createdAt   DateTime       @default(now())
+  order       Int               @default(0)
+  createdAt   DateTime          @default(now())
   comments    Comment[]
   activities  TaskActivity[]
+  attachments TaskAttachment[]
   epicId      Int?
-  epic        Epic?          @relation(fields: [epicId], references: [id], onDelete: SetNull)
+  epic        Epic?             @relation(fields: [epicId], references: [id], onDelete: SetNull)
   parentId    Int?
-  parent      Task?          @relation("Subtasks", fields: [parentId], references: [id], onDelete: Cascade)
-  subtasks    Task[]         @relation("Subtasks")
+  parent      Task?             @relation("Subtasks", fields: [parentId], references: [id], onDelete: Cascade)
+  subtasks    Task[]            @relation("Subtasks")
+}
+
+model TaskAttachment {
+  id        Int      @id @default(autoincrement())
+  taskId    Int
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  filename  String
+  filepath  String
+  mimetype  String
+  size      Int
+  createdAt DateTime @default(now())
 }
 
 model TaskActivity {
