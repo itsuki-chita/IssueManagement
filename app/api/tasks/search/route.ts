@@ -6,13 +6,17 @@ export async function GET(request: Request) {
   const q = searchParams.get("q")?.trim() ?? "";
   if (!q) return NextResponse.json([]);
 
+  const words = q.split(/\s+/).filter(Boolean);
+
   const tasks = await prisma.task.findMany({
     where: {
-      OR: [
-        { title: { contains: q } },
-        { description: { contains: q } },
-        { comments: { some: { body: { contains: q } } } },
-      ],
+      AND: words.map((word) => ({
+        OR: [
+          { title: { contains: word } },
+          { description: { contains: word } },
+          { comments: { some: { body: { contains: word } } } },
+        ],
+      })),
     },
     orderBy: { createdAt: "desc" },
   });

@@ -1062,14 +1062,40 @@ export default function Home() {
     setActivities(data);
   }
 
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savedSearchContextRef = useRef<{ view: ViewState; mainMenu: "tasks" | "sprints" } | null>(null);
+
   async function fetchSearch(q: string) {
     setIsSearching(true);
-    setPreviousView(view);
     setView({ kind: "search", query: q });
     setMainMenu("tasks");
     const res = await fetch(`/api/tasks/search?q=${encodeURIComponent(q)}`);
     setSearchResults(await res.json());
     setIsSearching(false);
+  }
+
+  function clearSearch() {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    setSearchInput("");
+    setSearchResults([]);
+    if (savedSearchContextRef.current) {
+      setView(savedSearchContextRef.current.view);
+      setMainMenu(savedSearchContextRef.current.mainMenu);
+      savedSearchContextRef.current = null;
+    }
+  }
+
+  function handleSearchInputChange(value: string) {
+    setSearchInput(value);
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    if (value.trim()) {
+      if (!isSearchView(view) && !savedSearchContextRef.current) {
+        savedSearchContextRef.current = { view, mainMenu };
+      }
+      searchDebounceRef.current = setTimeout(() => fetchSearch(value.trim()), 300);
+    } else {
+      clearSearch();
+    }
   }
 
   function selectTask(task: Task) {
@@ -1543,28 +1569,19 @@ export default function Home() {
                 スプリント
               </button>
             </div>
-            <form
-              onSubmit={(e) => { e.preventDefault(); if (searchInput.trim()) fetchSearch(searchInput.trim()); }}
-              className="flex items-center gap-1.5"
-            >
+            <div className="relative">
+              <svg viewBox="0 0 16 16" className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="6.5" cy="6.5" r="4.5" />
+                <line x1="10" y1="10" x2="14" y2="14" />
+              </svg>
               <input
                 type="text"
                 value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
+                onChange={(e) => handleSearchInputChange(e.target.value)}
                 placeholder="タスクを検索..."
-                className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 w-52"
+                className="border border-gray-300 rounded-lg pl-8 pr-3 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 w-52"
               />
-              <button
-                type="submit"
-                className="border border-gray-300 bg-white text-gray-500 px-3 py-1.5 rounded-lg text-sm hover:bg-gray-50 hover:text-gray-700 transition-colors flex items-center gap-1"
-              >
-                <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="6.5" cy="6.5" r="4.5" />
-                  <line x1="10" y1="10" x2="14" y2="14" />
-                </svg>
-                検索
-              </button>
-            </form>
+            </div>
             <div className="flex items-center gap-2">
             <button
               onClick={openCreateForm}
@@ -2371,7 +2388,7 @@ export default function Home() {
                     <span className="text-sm text-gray-400">{searchResults.length} 件</span>
                   )}
                   <button
-                    onClick={() => { setView(previousView); setSearchInput(""); setSearchResults([]); }}
+                    onClick={clearSearch}
                     className="ml-auto text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1 transition-colors"
                   >
                     <svg viewBox="0 0 10 10" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
