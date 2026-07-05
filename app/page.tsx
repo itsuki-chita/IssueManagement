@@ -1025,6 +1025,7 @@ export default function Home() {
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("idle");
   const [updateSteps, setUpdateSteps] = useState<{ label: string; output: string; success: boolean }[]>([]);
   const [updateUpToDate, setUpdateUpToDate] = useState(false);
+  const [versionInfo, setVersionInfo] = useState<{ hash: string; date: string; message: string } | null>(null);
   const [editProjectForm, setEditProjectForm] = useState({ name: "", key: "" });
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [activeOverId, setActiveOverId] = useState<string | number | null>(null);
@@ -1715,7 +1716,16 @@ export default function Home() {
               + タスクを追加
             </button>
             <button
-              onClick={() => { setShowAdminModal(true); setUpdateStatus("idle"); setUpdateSteps([]); setUpdateUpToDate(false); }}
+              onClick={() => {
+                setShowAdminModal(true);
+                setUpdateStatus("idle");
+                setUpdateSteps([]);
+                setUpdateUpToDate(false);
+                setVersionInfo(null);
+                fetch("/api/admin/version").then((r) => r.json()).then((d) => {
+                  if (d.hash) setVersionInfo(d);
+                }).catch(() => {});
+              }}
               className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
               title="管理メニュー"
             >
@@ -3727,6 +3737,13 @@ export default function Home() {
                 <div>
                   <p className="text-sm font-semibold text-gray-700">アプリをアップデート</p>
                   <p className="text-xs text-gray-400 mt-0.5">GitHub から最新バージョンを取得して反映します</p>
+                  {versionInfo && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <span className="font-mono text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{versionInfo.hash}</span>
+                      <span className="text-xs text-gray-400">{versionInfo.date}</span>
+                      <span className="text-xs text-gray-500 truncate max-w-[200px]" title={versionInfo.message}>{versionInfo.message}</span>
+                    </div>
+                  )}
                 </div>
                 <button
                   onClick={async () => {
