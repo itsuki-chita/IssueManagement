@@ -1026,6 +1026,11 @@ export default function Home() {
   const [updateSteps, setUpdateSteps] = useState<{ label: string; output: string; success: boolean }[]>([]);
   const [updateUpToDate, setUpdateUpToDate] = useState(false);
   const [versionInfo, setVersionInfo] = useState<{ hash: string; date: string; message: string } | null>(null);
+  type BackupEntry = { filename: string; hash: string; timestamp: string; sizeKB: number; type: "auto" | "update" };
+  const [backups, setBackups] = useState<BackupEntry[]>([]);
+  type RollbackStatus = "idle" | "running" | "done" | "error";
+  const [rollbackStatus, setRollbackStatus] = useState<RollbackStatus>("idle");
+  const [rollbackSteps, setRollbackSteps] = useState<{ label: string; output: string; success: boolean }[]>([]);
   const [editProjectForm, setEditProjectForm] = useState({ name: "", key: "" });
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [activeOverId, setActiveOverId] = useState<string | number | null>(null);
@@ -1722,8 +1727,14 @@ export default function Home() {
                 setUpdateSteps([]);
                 setUpdateUpToDate(false);
                 setVersionInfo(null);
+                setBackups([]);
+                setRollbackStatus("idle");
+                setRollbackSteps([]);
                 fetch("/api/admin/version").then((r) => r.json()).then((d) => {
                   if (d.hash) setVersionInfo(d);
+                }).catch(() => {});
+                fetch("/api/admin/backups").then((r) => r.json()).then((d) => {
+                  if (Array.isArray(d)) setBackups(d);
                 }).catch(() => {});
               }}
               className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
@@ -3784,6 +3795,90 @@ export default function Home() {
               {updateSteps.length > 0 && (
                 <div className="flex flex-col gap-2 max-h-64 overflow-y-auto">
                   {updateSteps.map((step, i) => (
+                    <div key={i} className={`rounded-lg border text-xs font-mono ${step.success ? "border-gray-200 bg-gray-50" : "border-red-200 bg-red-50"}`}>
+                      <div className={`flex items-center gap-1.5 px-3 py-1.5 border-b ${step.success ? "border-gray-200" : "border-red-200"}`}>
+                        {step.success ? (
+                          <svg viewBox="0 0 12 12" fill="currentColor" className="w-3 h-3 text-green-500 flex-shrink-0">
+                            <path fillRule="evenodd" d="M10 6A4 4 0 112 6a4 4 0 018 0zm-1.5-.5L6 8 3.5 5.5l1-1L6 6l2-2 .5.5z" clipRule="evenodd" />
+                          </svg>
+                        ) : (
+                          <svg viewBox="0 0 12 12" fill="currentColor" className="w-3 h-3 text-red-500 flex-shrink-0">
+                            <path fillRule="evenodd" d="M6 1a5 5 0 100 10A5 5 0 006 1zm-.5 2.5h1v4h-1V3.5zm0 5h1v1h-1v-1z" clipRule="evenodd" />
+                          </svg>
+                        )}
+                        <span className={`font-semibold ${step.success ? "text-gray-600" : "text-red-600"}`}>{step.label}</span>
+                      </div>
+                      {step.output && (
+                        <pre className="px-3 py-2 text-gray-700 whitespace-pre-wrap break-all leading-relaxed">{step.output}</pre>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* ロールバック */}
+            <div className="border border-gray-200 rounded-xl p-4 flex flex-col gap-3">
+              <div>
+                <p className="text-sm font-semibold text-gray-700">ロールバック</p>
+                <p className="text-xs text-gray-400 mt-0.5">以前のバージョンに戻し、DB を復元します</p>
+              </div>
+              {backups.length === 0 ? (
+                <p className="text-xs text-gray-400">バックアップはまだありません（アップデート実行時に自動作成されます）</p>
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  {backups.map((b) => (
+                    <div key={b.filename} className="flex items-center gap-2 py-1.5 border-b border-gray-100 last:border-0">
+                      {b.type === "auto" ? (
+                        <span className="text-xs bg-blue-50 text-blue-600 border border-blue-200 px-1.5 py-0.5 rounded flex-shrink-0">自動</span>
+                      ) : (
+                        <span className="font-mono text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded flex-shrink-0">{b.hash}</span>
+                      )}
+                      <span className="text-xs text-gray-500 flex-shrink-0">{b.timestamp}</span>
+                      <span className="text-xs text-gray-400 flex-shrink-0">{b.sizeKB} KB</span>
+                      <div className="flex-1" />
+                      <button
+                        onClick={async () => {
+                          const msg = b.type === "auto"
+                            ? `${b.timestamp} の自動バックアップからDBを復元しますか？\nコードは変更されません。`
+                            : `バージョン ${b.hash}（${b.timestamp}）に戻し、DBを復元しますか？\n現在のコードの変更は失われます。`;
+                          if (!confirm(msg)) return;
+                          setRollbackStatus("running");
+                          setRollbackSteps([]);
+                          try {
+                            const res = await fetch("/api/admin/rollback", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ backupFile: b.filename }),
+                            });
+                            const data = await res.json();
+                            setRollbackSteps(data.steps ?? []);
+                            setRollbackStatus(data.success ? "done" : "error");
+                          } catch {
+                            setRollbackSteps([{ label: "エラー", output: "リクエストに失敗しました", success: false }]);
+                            setRollbackStatus("error");
+                          }
+                        }}
+                        disabled={rollbackStatus === "running"}
+                        className="text-xs px-2.5 py-1 rounded-lg border border-gray-300 text-gray-600 hover:border-red-300 hover:text-red-600 transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        復元
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {rollbackStatus === "done" && (
+                <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                  <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-green-500 flex-shrink-0">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                  <span className="text-sm text-green-700 font-medium">ロールバック完了。サーバーを再起動してください。</span>
+                </div>
+              )}
+              {rollbackSteps.length > 0 && (
+                <div className="flex flex-col gap-2 max-h-48 overflow-y-auto">
+                  {rollbackSteps.map((step, i) => (
                     <div key={i} className={`rounded-lg border text-xs font-mono ${step.success ? "border-gray-200 bg-gray-50" : "border-red-200 bg-red-50"}`}>
                       <div className={`flex items-center gap-1.5 px-3 py-1.5 border-b ${step.success ? "border-gray-200" : "border-red-200"}`}>
                         {step.success ? (
