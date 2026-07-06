@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { execSync } from "child_process";
+import fs from "fs";
+import path from "path";
 
 type Step = { label: string; output: string; success: boolean };
 
@@ -24,6 +26,19 @@ export async function POST() {
 
     if (behind === "0") {
       return NextResponse.json({ success: true, upToDate: true, steps });
+    }
+
+    // アップデート前に DB バックアップ
+    const dbPath = path.join(cwd, "prisma", "dev.db");
+    if (fs.existsSync(dbPath)) {
+      const backupDir = path.join(cwd, "prisma", "backups");
+      fs.mkdirSync(backupDir, { recursive: true });
+      const hash = execSync("git rev-parse --short HEAD", { cwd, encoding: "utf-8" }).trim();
+      const now = new Date();
+      const ts = now.toISOString().replace(/[-:T]/g, "").slice(0, 14);
+      const backupFile = path.join(backupDir, `dev.db.${hash}.${ts}`);
+      fs.copyFileSync(dbPath, backupFile);
+      steps.push({ label: "DB バックアップ", output: `prisma/backups/dev.db.${hash}.${ts}`, success: true });
     }
 
     // 変更されるファイル一覧を取得
