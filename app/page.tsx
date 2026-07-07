@@ -1093,6 +1093,8 @@ export default function Home() {
     else setComments([]);
   }, [selectedTaskId]);
 
+  const activeSprints = sprints.filter((s) => s.status === "active");
+
   const viewedTasks = tasks.filter((t) => {
     if (isTaskView(view)) return t.id === view.id;
     if (isSearchView(view)) return false;
@@ -2620,24 +2622,34 @@ export default function Home() {
 
             {/* スイムレーンビュー */}
             {displayMode === "swimlane" && (
-              <div className="flex-1 overflow-x-auto overflow-y-auto px-4 pb-4">
-                <div className="flex gap-3 h-full min-h-0" style={{ minWidth: "max-content" }}>
-                  {(["open", "in_progress", "resolved", "on_hold", "closed"] as TaskStatus[]).map((status) => (
-                    <div key={status} className="w-52 flex-shrink-0 flex flex-col">
-                      <SwimlaneColumn
-                        status={status}
-                        tasks={viewedTasks.filter((t) => t.status === status)}
-                        isOver={isTaskDragging && activeOverId === `col-${status}`}
-                        onSelectTask={selectTask}
-                        selectedTaskId={selectedTaskId}
-                        projects={projects}
-                        allTasks={tasks}
-                        onShowOnly={showTaskOnly}
-                      />
-                    </div>
-                  ))}
+              activeSprints.length === 0 ? (
+                <div className="flex-1 flex items-center justify-center text-sm text-gray-400">
+                  アクティブなスプリントがありません
                 </div>
-              </div>
+              ) : (
+                <div className="flex-1 overflow-x-auto overflow-y-auto px-4 pb-4">
+                  <div className="flex items-center gap-2 px-1 pb-3 text-xs text-gray-500">
+                    <span className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" />
+                    {activeSprints.map((s) => s.name).join(" · ")}
+                  </div>
+                  <div className="flex gap-3 h-full min-h-0" style={{ minWidth: "max-content" }}>
+                    {(["open", "in_progress", "resolved", "on_hold", "closed"] as TaskStatus[]).map((status) => (
+                      <div key={status} className="w-52 flex-shrink-0 flex flex-col">
+                        <SwimlaneColumn
+                          status={status}
+                          tasks={viewedTasks.filter((t) => t.status === status && activeSprints.some((s) => s.id === t.sprintId))}
+                          isOver={isTaskDragging && activeOverId === `col-${status}`}
+                          onSelectTask={selectTask}
+                          selectedTaskId={selectedTaskId}
+                          projects={projects}
+                          allTasks={tasks}
+                          onShowOnly={showTaskOnly}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
             )}
             </>)}
 
