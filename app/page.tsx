@@ -44,6 +44,8 @@ type Project = {
   key: string | null;
   description: string | null;
   color: string;
+  status: "active" | "closed";
+  archivedAt: string | null;
   createdAt: string;
 };
 
@@ -828,51 +830,43 @@ function SwimlaneColumn({
 }
 
 function DroppableProjectItem({
-  project, isSelected, taskCount, onSelect, onEdit, onDelete, isTaskOver,
+  project, isSelected, taskCount, onSelect, onEdit, isTaskOver,
 }: {
   project: Project;
   isSelected: boolean;
   taskCount: number;
   onSelect: () => void;
   onEdit: (e: React.MouseEvent) => void;
-  onDelete: (e: React.MouseEvent) => void;
   isTaskOver: boolean;
 }) {
   const { setNodeRef } = useDroppable({ id: `project-${project.id}` });
+  const isClosed = project.status === "closed";
+  const isArchived = !!project.archivedAt;
   return (
     <div
       ref={setNodeRef}
       onClick={onSelect}
-      className={`group flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-all ${
-        isTaskOver ? "ring-2 ring-indigo-400 bg-indigo-50"
+      className={`group flex items-center gap-1.5 px-2 py-1.5 rounded-lg cursor-pointer transition-all ${
+        isArchived ? "opacity-50"
+          : isTaskOver ? "ring-2 ring-indigo-400 bg-indigo-50"
           : isSelected ? "bg-indigo-50 text-indigo-700"
+          : isClosed ? "text-gray-400 hover:bg-gray-50"
           : "text-gray-700 hover:bg-gray-50"
       }`}
     >
       <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: project.color }} />
-      <span className="text-sm font-medium flex-1 truncate">{project.name}</span>
-      {project.key && (
-        <span className="text-xs font-mono text-gray-400 flex-shrink-0">{project.key}</span>
+      <span className={`text-sm font-medium flex-1 truncate ${isClosed ? "line-through text-gray-400" : ""}`}>{project.name}</span>
+      {isClosed && !isArchived && (
+        <span className="text-[10px] bg-gray-100 text-gray-400 px-1 py-0.5 rounded flex-shrink-0">終了</span>
       )}
-      <span className="text-xs text-gray-400 flex-shrink-0 opacity-0 group-hover:opacity-0">{taskCount}</span>
-      <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 flex-shrink-0 transition-opacity">
-        <span className="text-xs text-gray-400">{taskCount}</span>
-        <button
-          onClick={onEdit}
-          className="text-gray-400 hover:text-indigo-500 p-0.5 rounded"
-          title="編集"
-        >
+      {isArchived && (
+        <span className="text-[10px] bg-amber-50 text-amber-500 border border-amber-200 px-1 py-0.5 rounded flex-shrink-0">保管</span>
+      )}
+      <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 flex-shrink-0 transition-opacity">
+        <span className="text-xs text-gray-400 mr-0.5">{taskCount}</span>
+        <button onClick={onEdit} className="text-gray-400 hover:text-indigo-500 p-0.5 rounded" title="編集">
           <svg viewBox="0 0 12 12" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <path d="M8.5 1.5l2 2L4 10H2v-2L8.5 1.5z" />
-          </svg>
-        </button>
-        <button
-          onClick={onDelete}
-          className="text-gray-400 hover:text-red-500 p-0.5 rounded"
-          title="削除"
-        >
-          <svg viewBox="0 0 12 12" className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <path d="M2 2l8 8M10 2l-8 8" />
           </svg>
         </button>
       </div>
@@ -1015,6 +1009,7 @@ export default function Home() {
   const [showProjectForm, setShowProjectForm] = useState(false);
   const [projectForm, setProjectForm] = useState(EMPTY_PROJECT_FORM);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [showArchivedProjects, setShowArchivedProjects] = useState(false);
   const [editingSprint, setEditingSprint] = useState<Sprint | null>(null);
   const [editSprintForm, setEditSprintForm] = useState(EMPTY_SPRINT_FORM);
   const [completingSprintId, setCompletingSprintId] = useState<number | null>(null);
@@ -1034,7 +1029,7 @@ export default function Home() {
   const [editProjectForm, setEditProjectForm] = useState({ name: "", key: "" });
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [activeOverId, setActiveOverId] = useState<string | number | null>(null);
-  const [mainMenu, setMainMenu] = useState<"tasks" | "sprints">("tasks");
+  const [mainMenu, setMainMenu] = useState<"tasks" | "sprints" | "projects">("tasks");
   const [sprintSubMenu, setSprintSubMenu] = useState<"management" | "records">("management");
   const [showClosedSprints, setShowClosedSprints] = useState(false);
   const [selectedRecordSprintId, setSelectedRecordSprintId] = useState<number | null>(null);
@@ -1193,7 +1188,7 @@ export default function Home() {
   }
 
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const savedSearchContextRef = useRef<{ view: ViewState; mainMenu: "tasks" | "sprints" } | null>(null);
+  const savedSearchContextRef = useRef<{ view: ViewState; mainMenu: "tasks" | "sprints" | "projects" } | null>(null);
 
   async function fetchSearch(q: string) {
     setIsSearching(true);
@@ -1458,8 +1453,8 @@ export default function Home() {
     fetchAll();
   }
 
-  function openEditProject(project: Project, e: React.MouseEvent) {
-    e.stopPropagation();
+  function openEditProject(project: Project, e?: React.MouseEvent) {
+    e?.stopPropagation();
     setEditingProject(project);
     setEditProjectForm({ name: project.name, key: project.key ?? "" });
   }
@@ -1501,6 +1496,32 @@ export default function Home() {
     await fetch(`/api/projects/${project.id}`, { method: "DELETE" });
     if (filterProjectId === project.id) setFilterProjectId(null);
     fetchAll();
+  }
+
+  async function patchProject(id: number, data: Partial<Pick<Project, "status" | "archivedAt">>) {
+    const res = await fetch(`/api/projects/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    const updated = await res.json();
+    setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, ...updated } : p)));
+  }
+
+  function closeProject(project: Project) {
+    patchProject(project.id, { status: "closed", archivedAt: new Date().toISOString() });
+  }
+
+  function reopenProject(project: Project) {
+    patchProject(project.id, { status: "active" });
+  }
+
+  function archiveProject(project: Project) {
+    patchProject(project.id, { archivedAt: new Date().toISOString() });
+  }
+
+  function unarchiveProject(project: Project) {
+    patchProject(project.id, { archivedAt: null });
   }
 
   async function handleEpicSubmit(e: React.FormEvent) {
@@ -1698,6 +1719,12 @@ export default function Home() {
                 className={`px-4 py-1 rounded-md text-sm font-medium transition-colors ${mainMenu === "sprints" ? "bg-white text-gray-800 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
               >
                 スプリント
+              </button>
+              <button
+                onClick={() => setMainMenu("projects")}
+                className={`px-4 py-1 rounded-md text-sm font-medium transition-colors ${mainMenu === "projects" ? "bg-white text-gray-800 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+              >
+                プロジェクト
               </button>
             </div>
             <div className="relative">
@@ -1954,6 +1981,94 @@ export default function Home() {
           </div>
         )}
 
+        {/* プロジェクト管理 */}
+        {mainMenu === "projects" && (
+          <div className="flex flex-1 overflow-hidden flex-col">
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-sm text-gray-500">
+                  {projects.filter((p) => showArchivedProjects || !p.archivedAt).length} 件
+                </p>
+                <button
+                  onClick={() => setShowArchivedProjects((v) => !v)}
+                  className={`text-sm px-3 py-1.5 rounded-lg border transition-colors ${showArchivedProjects ? "border-indigo-300 bg-indigo-50 text-indigo-700" : "border-gray-300 text-gray-600 hover:bg-gray-50"}`}
+                >
+                  {showArchivedProjects ? "アーカイブ済みを非表示" : "アーカイブ済みを表示"}
+                </button>
+              </div>
+
+              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-100 bg-gray-50/60">
+                      <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500">プロジェクト名</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 w-28">キー</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 w-28">ステータス</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 w-20">タスク数</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 w-32">作成日</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 w-36">アーカイブ日</th>
+                      <th className="px-4 py-2.5 w-16"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {projects
+                      .filter((p) => showArchivedProjects || !p.archivedAt)
+                      .map((project) => {
+                        const taskCount = tasks.filter((t) => t.projectId === project.id && t.parentId === null).length;
+                        const isArchived = !!project.archivedAt;
+                        const isClosed = project.status === "closed";
+                        return (
+                          <tr
+                            key={project.id}
+                            className={`border-b border-gray-100 last:border-0 transition-colors ${isArchived ? "opacity-60 bg-gray-50/40" : "hover:bg-gray-50/60"}`}
+                          >
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2">
+                                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: project.color }} />
+                                <span className={`font-medium text-gray-800 ${isClosed ? "line-through text-gray-400" : ""}`}>{project.name}</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              {project.key
+                                ? <span className="font-mono text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">{project.key}</span>
+                                : <span className="text-gray-300 text-xs">—</span>
+                              }
+                            </td>
+                            <td className="px-4 py-3">
+                              {isArchived ? (
+                                <span className="inline-flex items-center text-xs font-medium bg-amber-50 text-amber-600 border border-amber-200 px-2 py-0.5 rounded-full">アーカイブ</span>
+                              ) : isClosed ? (
+                                <span className="inline-flex items-center text-xs font-medium bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">終了</span>
+                              ) : (
+                                <span className="inline-flex items-center text-xs font-medium bg-green-50 text-green-700 border border-green-200 px-2 py-0.5 rounded-full">アクティブ</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-gray-600 tabular-nums">{taskCount}</td>
+                            <td className="px-4 py-3 text-gray-400 text-xs">{formatDate(project.createdAt)}</td>
+                            <td className="px-4 py-3 text-gray-400 text-xs">
+                              {project.archivedAt ? formatDate(project.archivedAt) : <span className="text-gray-200">—</span>}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <button
+                                onClick={() => openEditProject(project)}
+                                className="text-xs text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 px-2.5 py-1 rounded-lg border border-gray-200 hover:border-indigo-200 transition-colors"
+                              >
+                                編集
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+                {projects.filter((p) => showArchivedProjects || !p.archivedAt).length === 0 && (
+                  <p className="text-sm text-gray-400 text-center py-10">プロジェクトがありません</p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className={`flex flex-1 overflow-hidden ${mainMenu !== "tasks" ? "hidden" : ""}`}>
           {/* ナビゲーション */}
           <aside className={`${sidebarCollapsed ? "w-10" : "w-56"} transition-all duration-200 ease-in-out border-r border-gray-200 bg-white flex-shrink-0 flex flex-col overflow-hidden`}>
@@ -2026,11 +2141,13 @@ export default function Home() {
                   </form>
                 )}
 
-                {projects.length === 0 && !showProjectForm && (
+                {projects.filter(p => p.status === "active" && !p.archivedAt).length === 0 && !showProjectForm && (
                   <p className="text-xs text-gray-400 px-1 py-2">プロジェクトがありません</p>
                 )}
                 <div className="space-y-0.5">
-                  {projects.map((project) => (
+                  {projects
+                    .filter((p) => p.status === "active" && !p.archivedAt)
+                    .map((project) => (
                     <DroppableProjectItem
                       key={project.id}
                       project={project}
@@ -2038,7 +2155,6 @@ export default function Home() {
                       taskCount={tasks.filter((t) => t.projectId === project.id && t.parentId === null).length}
                       onSelect={() => setFilterProjectId(filterProjectId === project.id ? null : project.id)}
                       onEdit={(e) => openEditProject(project, e)}
-                      onDelete={(e) => { e.stopPropagation(); deleteProject(project); }}
                       isTaskOver={isTaskDragging && activeOverId === `project-${project.id}`}
                     />
                   ))}
@@ -2359,7 +2475,7 @@ export default function Home() {
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     >
                       <option value="">プロジェクトなし</option>
-                      {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      {projects.filter((p) => p.status === "active" && !p.archivedAt).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
                     <div className="flex gap-1.5 flex-wrap">
                       {EPIC_COLORS.map((color) => (
@@ -2970,7 +3086,7 @@ export default function Home() {
                           className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
                         >
                           <option value="">なし</option>
-                          {projects.map((p) => (
+                          {projects.filter((p) => p.status === "active" && !p.archivedAt).map((p) => (
                             <option key={p.id} value={p.id}>{p.name}</option>
                           ))}
                         </select>
@@ -3165,7 +3281,7 @@ export default function Home() {
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     >
                       <option value="">なし</option>
-                      {projects.map((p) => (
+                      {projects.filter((p) => p.status === "active" && !p.archivedAt).map((p) => (
                         <option key={p.id} value={p.id}>{p.name}</option>
                       ))}
                     </select>
@@ -3549,7 +3665,7 @@ export default function Home() {
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 >
                   <option value="">なし</option>
-                  {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  {projects.filter((p) => p.status === "active" && !p.archivedAt).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
               </div>
               <div>
@@ -3726,6 +3842,84 @@ export default function Home() {
                 </button>
               </div>
             </form>
+
+            {/* ステータス操作 */}
+            <div className="mt-5 pt-4 border-t border-gray-100 space-y-2">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">ステータス</p>
+              <div className="flex gap-2">
+                {editingProject.status === "active" ? (
+                  <button
+                    type="button"
+                    onClick={() => { closeProject(editingProject); setEditingProject(null); }}
+                    className="flex-1 flex items-center justify-center gap-1.5 border border-orange-200 text-orange-600 bg-orange-50 hover:bg-orange-100 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    <svg viewBox="0 0 16 16" className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="2" y="2" width="12" height="12" rx="2" />
+                      <path d="M5 8h6" />
+                    </svg>
+                    終了する
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => { reopenProject(editingProject); setEditingProject(null); }}
+                    className="flex-1 flex items-center justify-center gap-1.5 border border-green-200 text-green-700 bg-green-50 hover:bg-green-100 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    <svg viewBox="0 0 16 16" className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="2" y="2" width="12" height="12" rx="2" />
+                      <path d="M5 8l2.5 2.5L11 5.5" />
+                    </svg>
+                    再開する
+                  </button>
+                )}
+                {!editingProject.archivedAt ? (
+                  <button
+                    type="button"
+                    onClick={() => { archiveProject(editingProject); setEditingProject(null); }}
+                    className="flex-1 flex items-center justify-center gap-1.5 border border-amber-200 text-amber-600 bg-amber-50 hover:bg-amber-100 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    <svg viewBox="0 0 16 16" className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M1 4h14v3H1z" />
+                      <path d="M2 7v7h12V7" />
+                      <path d="M6 10.5h4" />
+                    </svg>
+                    アーカイブ
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => { unarchiveProject(editingProject); setEditingProject(null); }}
+                    className="flex-1 flex items-center justify-center gap-1.5 border border-gray-200 text-gray-600 bg-gray-50 hover:bg-gray-100 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    <svg viewBox="0 0 16 16" className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M1 4h14v3H1z" />
+                      <path d="M2 7v7h12V7" />
+                      <path d="M6 10.5h4M8 13v-3m-2 1.5L8 9l2 1.5" />
+                    </svg>
+                    アーカイブ解除
+                  </button>
+                )}
+              </div>
+              {editingProject.status === "closed" && !editingProject.archivedAt && (
+                <p className="text-xs text-gray-400">終了済み。再開するかアーカイブして非表示にできます。</p>
+              )}
+              {editingProject.archivedAt && (
+                <p className="text-xs text-amber-500">アーカイブ中 — サイドバーで「アーカイブ済みを表示」で確認できます。</p>
+              )}
+              <div className="pt-2 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => { setEditingProject(null); deleteProject(editingProject); }}
+                  className="w-full flex items-center justify-center gap-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                >
+                  <svg viewBox="0 0 16 16" className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 4h10M6 4V2.5h4V4M5 4v9h6V4H5z" />
+                    <path d="M7 7v4M9 7v4" />
+                  </svg>
+                  このプロジェクトを削除
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

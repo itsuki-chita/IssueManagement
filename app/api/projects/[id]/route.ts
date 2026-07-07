@@ -36,6 +36,8 @@ export async function PATCH(
       ...(body.key !== undefined && { key: body.key ? String(body.key).toUpperCase() : null }),
       ...(body.description !== undefined && { description: body.description }),
       ...(body.color !== undefined && { color: body.color }),
+      ...(body.status !== undefined && { status: body.status }),
+      ...(body.archivedAt !== undefined && { archivedAt: body.archivedAt ? new Date(body.archivedAt) : null }),
     },
   });
   return NextResponse.json(project);

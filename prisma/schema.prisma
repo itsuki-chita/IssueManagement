@@ -13,6 +13,8 @@ model Project {
   key         String?   @unique
   description String?
   color       String    @default("#6366f1")
+  status      String    @default("active")
+  archivedAt  DateTime?
   createdAt   DateTime  @default(now())
   tasks       Task[]
   epics       Epic[]
