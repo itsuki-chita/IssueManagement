@@ -35,6 +35,7 @@ export type TaskDetailProps = {
   task: {
     id: number; title: string; description: string | null;
     status: string; done: boolean; priority: string;
+    startDate: string | null; endDate: string | null;
     dueDate: string | null; taskNumber: number | null;
     sprintId: number | null; projectId: number | null; epicId: number | null;
     parentId: number | null; createdAt: string;
@@ -114,6 +115,8 @@ export default function TaskDetailClient({ task: initial, projects, sprints, epi
   const [status, setStatus]             = useState(initial.status);
   const [done, setDone]                 = useState(initial.done);
   const [priority, setPriority]         = useState(initial.priority);
+  const [startDate, setStartDate]       = useState(initial.startDate ? initial.startDate.slice(0, 10) : "");
+  const [endDate, setEndDate]           = useState(initial.endDate ? initial.endDate.slice(0, 10) : "");
   const [dueDate, setDueDate]           = useState(initial.dueDate ? initial.dueDate.slice(0, 10) : "");
   const [projectId, setProjectId]       = useState<number | null>(initial.projectId);
   const [sprintId, setSprintId]         = useState<number | null>(initial.sprintId);
@@ -520,6 +523,28 @@ export default function TaskDetailClient({ task: initial, projects, sprints, epi
                 <option value="">なし</option>
                 {epics.map((ep) => <option key={ep.id} value={ep.id}>{ep.title}</option>)}
               </select>
+            </div>
+
+            {/* 開始日 */}
+            <div>
+              <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">開始日</label>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => { setStartDate(e.target.value); patch({ startDate: e.target.value || null }); }}
+                className="w-full text-sm px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-700 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400"
+              />
+            </div>
+
+            {/* 終了日 */}
+            <div>
+              <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">終了日</label>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => { setEndDate(e.target.value); patch({ endDate: e.target.value || null }); }}
+                className="w-full text-sm px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-700 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400"
+              />
             </div>
 
             {/* 期限 */}

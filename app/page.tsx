@@ -89,6 +89,8 @@ type Task = {
   status: TaskStatus;
   done: boolean;
   priority: Priority;
+  startDate: string | null;
+  endDate: string | null;
   dueDate: string | null;
   sprintId: number | null;
   projectId: number | null;
@@ -400,6 +402,8 @@ const EMPTY_TASK_FORM = {
   description: "",
   status: "open" as TaskStatus,
   priority: "medium" as Priority,
+  startDate: "",
+  endDate: "",
   dueDate: "",
   sprintId: null as number | null,
   projectId: null as number | null,
@@ -829,6 +833,671 @@ function SwimlaneColumn({
   );
 }
 
+// ─────────────────────────────────────────
+// WBS ビュー（階層表示 + ガントチャート）
+// ─────────────────────────────────────────
+type WBSTask = {
+  id: number; title: string; description: string | null; status: string; done: boolean; priority: string;
+  startDate: string | null; endDate: string | null; dueDate: string | null;
+  projectId: number | null; sprintId: number | null; epicId: number | null;
+  parentId: number | null; taskNumber: number | null;
+};
+type WBSProject = { id: number; name: string; key: string | null; color: string; status: string; archivedAt: string | null; };
+
+function WBSView({
+  tasks,
+  projects,
+  sprints,
+  epics,
+  filterProjectId,
+  setFilterProjectId,
+  onTaskUpdate,
+}: {
+  tasks: WBSTask[];
+  projects: WBSProject[];
+  sprints: { id: number; name: string; status: string }[];
+  epics: { id: number; title: string; color: string; projectId: number | null }[];
+  filterProjectId: number | null;
+  setFilterProjectId: (id: number | null) => void;
+  onTaskUpdate: (id: number, data: Partial<WBSTask>) => void;
+}) {
+  const ROW_H = 36;
+  const DAY_W = 26;
+  const LEFT_W = 360;
+  const TOTAL_DAYS = 84; // 12 weeks
+
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(() =>
+    new Set(tasks.filter((t) => t.parentId === null).map((t) => t.id))
+  );
+  const [expandedEpicIds, setExpandedEpicIds] = useState<Set<number>>(() =>
+    new Set([...epics.map((e) => e.id), -1])
+  );
+  const [offsetWeeks, setOffsetWeeks] = useState(0);
+
+  // ガントドラッグ
+  const [drag, setDrag] = useState<{
+    taskId: number;
+    kind: "move" | "left" | "right" | "create";
+    startX: number;
+    anchorDay: number;
+    origStartOff: number | null;
+    origEndOff: number | null;
+  } | null>(null);
+  const [dragPreview, setDragPreview] = useState<{
+    taskId: number; startOff: number | null; endOff: number | null;
+  } | null>(null);
+  const dragPreviewRef = useRef(dragPreview);
+  dragPreviewRef.current = dragPreview;
+
+  // モーダル
+  const [modalTask, setModalTask] = useState<WBSTask | null>(null);
+  const [modalTitle, setModalTitle] = useState("");
+  const [savedTitle, setSavedTitle] = useState("");
+  const [modalDesc, setModalDesc] = useState("");
+  const [savedDesc, setSavedDesc] = useState("");
+
+  function openModal(task: WBSTask) {
+    setModalTask(task);
+    setModalTitle(task.title);
+    setSavedTitle(task.title);
+    setModalDesc(task.description ?? "");
+    setSavedDesc(task.description ?? "");
+  }
+
+  async function patchTask(id: number, data: Partial<WBSTask>) {
+    await fetch(`/api/tasks/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    onTaskUpdate(id, data);
+    setModalTask((prev) => (prev ? { ...prev, ...data } : null));
+  }
+
+  function handleTitleBlur() {
+    if (!modalTask || modalTitle.trim() === savedTitle) return;
+    setSavedTitle(modalTitle.trim());
+    patchTask(modalTask.id, { title: modalTitle.trim() });
+  }
+
+  function handleDescBlur() {
+    if (!modalTask || modalDesc === savedDesc) return;
+    setSavedDesc(modalDesc);
+    patchTask(modalTask.id, { description: modalDesc || null });
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const ganttStart = new Date(today);
+  ganttStart.setDate(ganttStart.getDate() - ganttStart.getDay() + 1 + offsetWeeks * 7); // Monday
+  const ganttEnd = new Date(ganttStart);
+  ganttEnd.setDate(ganttEnd.getDate() + TOTAL_DAYS);
+
+  const activeProjects = projects.filter((p) => p.status === "active" && !p.archivedAt);
+
+  // Epic → Story（parentId=null） → Subtask の階層
+  const filteredEpics = filterProjectId
+    ? epics.filter((e) => e.projectId === filterProjectId)
+    : epics;
+
+  const filteredTasks = filterProjectId
+    ? tasks.filter((t) => t.projectId === filterProjectId)
+    : tasks;
+
+  const stories    = filteredTasks.filter((t) => t.parentId === null);
+  const subtasksAll = filteredTasks.filter((t) => t.parentId !== null);
+
+  type FlatRow =
+    | { kind: "epic"; epicId: number; title: string; color: string }
+    | { kind: "task"; task: WBSTask; level: number; hasChildren: boolean };
+
+  const flatRows: FlatRow[] = [];
+
+  for (const epic of filteredEpics) {
+    flatRows.push({ kind: "epic", epicId: epic.id, title: epic.title, color: epic.color });
+    if (expandedEpicIds.has(epic.id)) {
+      for (const story of stories.filter((s) => s.epicId === epic.id)) {
+        const subs = subtasksAll.filter((t) => t.parentId === story.id);
+        flatRows.push({ kind: "task", task: story, level: 1, hasChildren: subs.length > 0 });
+        if (expandedIds.has(story.id)) {
+          for (const sub of subs) {
+            flatRows.push({ kind: "task", task: sub, level: 2, hasChildren: false });
+          }
+        }
+      }
+    }
+  }
+
+  // エピックなし（epicId が null またはフィルタ外）
+  const epicIdSet = new Set(filteredEpics.map((e) => e.id));
+  const noEpicStories = stories.filter((s) => s.epicId === null || !epicIdSet.has(s.epicId!));
+  if (noEpicStories.length > 0) {
+    flatRows.push({ kind: "epic", epicId: -1, title: "エピックなし", color: "#d1d5db" });
+    if (expandedEpicIds.has(-1)) {
+      for (const story of noEpicStories) {
+        const subs = subtasksAll.filter((t) => t.parentId === story.id);
+        flatRows.push({ kind: "task", task: story, level: 1, hasChildren: subs.length > 0 });
+        if (expandedIds.has(story.id)) {
+          for (const sub of subs) {
+            flatRows.push({ kind: "task", task: sub, level: 2, hasChildren: false });
+          }
+        }
+      }
+    }
+  }
+
+  function dayOff(dateStr: string | null): number | null {
+    if (!dateStr) return null;
+    const d = new Date(dateStr);
+    d.setHours(0, 0, 0, 0);
+    return Math.floor((d.getTime() - ganttStart.getTime()) / 86400000);
+  }
+
+  function offToDateStr(off: number): string {
+    const d = new Date(ganttStart.getTime() + off * 86400000);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+
+  const todayOff = Math.floor((today.getTime() - ganttStart.getTime()) / 86400000);
+
+  // Month labels for gantt header
+  const months: { label: string; days: number }[] = [];
+  {
+    let cur = new Date(ganttStart);
+    let counted = 0;
+    while (counted < TOTAL_DAYS) {
+      const y = cur.getFullYear(), m = cur.getMonth();
+      const daysInMonth = new Date(y, m + 1, 0).getDate();
+      const remaining = daysInMonth - cur.getDate() + 1;
+      const days = Math.min(remaining, TOTAL_DAYS - counted);
+      months.push({ label: `${y}/${String(m + 1).padStart(2, "0")}`, days });
+      counted += remaining;
+      cur = new Date(y, m + 1, 1);
+    }
+  }
+
+  const STATUS_BAR: Record<string, string> = {
+    open: "bg-blue-400", in_progress: "bg-yellow-400",
+    resolved: "bg-green-400", on_hold: "bg-gray-400", closed: "bg-red-400",
+  };
+
+  function toggleExpand(id: number) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  function toggleEpic(id: number) {
+    setExpandedEpicIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  // ガントバー ドラッグ追跡（ganttStart はドラッグ開始時にクロージャでキャプチャ）
+  useEffect(() => {
+    if (!drag) return;
+    const ganttStartMs = ganttStart.getTime();
+
+    function onMove(e: MouseEvent) {
+      const delta = Math.round((e.clientX - drag!.startX) / DAY_W);
+      let s = drag!.origStartOff;
+      let en = drag!.origEndOff;
+
+      if (drag!.kind === "move") {
+        s  = s  !== null ? s  + delta : null;
+        en = en !== null ? en + delta : null;
+      } else if (drag!.kind === "left") {
+        s = drag!.origStartOff !== null ? drag!.origStartOff + delta : delta;
+        if (en !== null && s > en) s = en;
+      } else if (drag!.kind === "right") {
+        en = drag!.origEndOff !== null ? drag!.origEndOff + delta : delta;
+        if (s !== null && en < s) en = s;
+      } else if (drag!.kind === "create") {
+        const cur = drag!.anchorDay + delta;
+        s  = Math.min(drag!.anchorDay, cur);
+        en = Math.max(drag!.anchorDay, cur);
+      }
+
+      setDragPreview({ taskId: drag!.taskId, startOff: s, endOff: en });
+    }
+
+    function onUp() {
+      const preview = dragPreviewRef.current;
+      if (preview) {
+        function toDate(off: number) {
+          const d = new Date(ganttStartMs + off * 86400000);
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        }
+        const data: Record<string, string | null> = {};
+        if (drag!.kind === "create" || preview.startOff !== drag!.origStartOff) {
+          data.startDate = preview.startOff !== null ? toDate(preview.startOff) : null;
+        }
+        if (drag!.kind === "create" || preview.endOff !== drag!.origEndOff) {
+          data.endDate = preview.endOff !== null ? toDate(preview.endOff) : null;
+        }
+        if (Object.keys(data).length > 0) {
+          patchTask(preview.taskId, data as Partial<WBSTask>);
+        }
+      }
+      setDrag(null);
+      setDragPreview(null);
+    }
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+    return () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drag?.taskId, drag?.kind, drag?.startX, drag?.anchorDay]);
+
+  return (
+    <div className={`flex flex-1 overflow-hidden flex-col${drag ? " select-none cursor-grabbing" : ""}`}>
+      {/* ツールバー */}
+      <div className="flex-shrink-0 flex items-center gap-3 px-6 py-2.5 border-b border-gray-200 bg-white">
+        <select
+          value={filterProjectId ?? ""}
+          onChange={(e) => setFilterProjectId(e.target.value ? parseInt(e.target.value) : null)}
+          className="text-sm px-3 py-1.5 rounded-lg border border-gray-200 text-gray-700 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400"
+        >
+          <option value="">すべてのプロジェクト</option>
+          {activeProjects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        <div className="flex items-center gap-1 ml-auto">
+          <button onClick={() => setOffsetWeeks((v) => v - 4)} className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600">← 前へ</button>
+          <button onClick={() => setOffsetWeeks(0)} className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600">今日</button>
+          <button onClick={() => setOffsetWeeks((v) => v + 4)} className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600">次へ →</button>
+        </div>
+      </div>
+
+      {/* スクロール領域 */}
+      <div className="flex-1 overflow-auto">
+        <div style={{ minWidth: LEFT_W + TOTAL_DAYS * DAY_W }}>
+
+          {/* ヘッダー（sticky） */}
+          <div className="sticky top-0 z-20 flex border-b border-gray-200 bg-gray-50" style={{ height: ROW_H * 2 }}>
+            {/* 左ヘッダー */}
+            <div
+              className="sticky left-0 z-30 bg-gray-50 border-r border-gray-200 flex items-end px-4 pb-2 text-xs font-semibold text-gray-500 uppercase tracking-wide flex-shrink-0"
+              style={{ width: LEFT_W }}
+            >
+              タスク名
+            </div>
+            {/* ガントヘッダー */}
+            <div style={{ width: TOTAL_DAYS * DAY_W, minWidth: TOTAL_DAYS * DAY_W }}>
+              {/* 月行 */}
+              <div className="flex border-b border-gray-200" style={{ height: ROW_H }}>
+                {months.map((m, i) => (
+                  <div
+                    key={i}
+                    className="flex-shrink-0 border-r border-gray-200 px-2 flex items-center text-xs font-medium text-gray-600"
+                    style={{ width: m.days * DAY_W }}
+                  >
+                    {m.label}
+                  </div>
+                ))}
+              </div>
+              {/* 週行 */}
+              <div className="flex relative" style={{ height: ROW_H }}>
+                {Array.from({ length: TOTAL_DAYS }).map((_, i) => {
+                  const d = new Date(ganttStart);
+                  d.setDate(d.getDate() + i);
+                  const isMonday = d.getDay() === 1;
+                  return (
+                    <div
+                      key={i}
+                      className={`flex-shrink-0 border-r border-gray-100 flex items-center justify-center ${todayOff === i ? "bg-indigo-50" : ""}`}
+                      style={{ width: DAY_W }}
+                    >
+                      {isMonday && <span className="text-[10px] text-gray-400">{d.getDate()}</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* 行 */}
+          {flatRows.map((row, ri) => {
+            // ── Epic セクションヘッダー ──
+            if (row.kind === "epic") {
+              const isExpanded = expandedEpicIds.has(row.epicId);
+              return (
+                <div
+                  key={`epic-${row.epicId}`}
+                  className="flex border-b border-gray-200 bg-gray-50/80"
+                  style={{ height: ROW_H }}
+                >
+                  <div
+                    className="sticky left-0 z-10 bg-gray-50/80 border-r border-gray-200 flex items-center gap-2 pr-3 min-w-0 flex-shrink-0"
+                    style={{ width: LEFT_W, paddingLeft: 8 }}
+                  >
+                    {/* カラーバー */}
+                    <span className="w-1 self-stretch rounded-sm flex-shrink-0" style={{ backgroundColor: row.color }} />
+                    <button
+                      onClick={() => toggleEpic(row.epicId)}
+                      className="w-4 h-4 flex-shrink-0 text-gray-500 hover:text-gray-700"
+                    >
+                      <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        {isExpanded ? <path d="M2 3.5l3 3 3-3" /> : <path d="M3.5 2l3 3-3 3" />}
+                      </svg>
+                    </button>
+                    <span className="text-xs font-semibold text-gray-600 truncate uppercase tracking-wide">{row.title}</span>
+                  </div>
+                  <div className="relative flex-shrink-0" style={{ width: TOTAL_DAYS * DAY_W }}>
+                    {Array.from({ length: Math.ceil(TOTAL_DAYS / 7) }).map((_, wi) => (
+                      <div key={wi} className="absolute top-0 bottom-0 border-r border-gray-100" style={{ left: wi * 7 * DAY_W }} />
+                    ))}
+                    {todayOff >= 0 && todayOff < TOTAL_DAYS && (
+                      <div className="absolute top-0 bottom-0 bg-indigo-50/50" style={{ left: todayOff * DAY_W, width: DAY_W }} />
+                    )}
+                  </div>
+                </div>
+              );
+            }
+
+            // ── タスク行（ストーリー / サブタスク）──
+            const { task, level, hasChildren } = row;
+            const startOff = dayOff(task.startDate);
+            const endOff   = dayOff(task.endDate ?? task.dueDate);
+            const isPreview = dragPreview?.taskId === task.id;
+            const effStartOff = isPreview ? dragPreview!.startOff : startOff;
+            const effEndOff   = isPreview ? dragPreview!.endOff   : endOff;
+            const effHasBar   = effStartOff !== null || effEndOff !== null;
+            const effBarLeft  = (effStartOff ?? effEndOff ?? 0) * DAY_W;
+            const effBarRight = (effEndOff   ?? effStartOff ?? 0) * DAY_W + DAY_W;
+            const effBarWidth = Math.max(DAY_W, effBarRight - effBarLeft);
+            const barColor    = STATUS_BAR[task.status] ?? "bg-gray-400";
+
+            return (
+              <div
+                key={`task-${task.id}-${ri}`}
+                className="flex border-b border-gray-100 hover:bg-gray-50/60 group"
+                style={{ height: ROW_H }}
+              >
+                {/* 左：タスク名 */}
+                <div
+                  className="sticky left-0 z-10 bg-white group-hover:bg-gray-50/60 border-r border-gray-200 flex items-center gap-1.5 pr-3 min-w-0 flex-shrink-0"
+                  style={{ width: LEFT_W, paddingLeft: 12 + level * 18 }}
+                >
+                  {hasChildren ? (
+                    <button onClick={() => toggleExpand(task.id)} className="w-4 h-4 flex-shrink-0 text-gray-400 hover:text-gray-600">
+                      <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        {expandedIds.has(task.id)
+                          ? <path d="M2 3.5l3 3 3-3" />
+                          : <path d="M3.5 2l3 3-3 3" />}
+                      </svg>
+                    </button>
+                  ) : (
+                    <span className="w-4 flex-shrink-0" />
+                  )}
+                  <span className={`flex-shrink-0 ${level === 2 ? "w-1.5 h-1.5 rounded-sm" : "w-2 h-2 rounded-full"} ${task.done ? "bg-indigo-400" : "border border-gray-300"}`} />
+                  <span
+                    onClick={() => openModal(task)}
+                    className={`text-sm truncate cursor-pointer hover:text-indigo-600 transition-colors ${task.done ? "line-through text-gray-400" : level === 1 ? "text-gray-800 font-medium" : "text-gray-700"}`}
+                  >
+                    {task.title}
+                  </span>
+                </div>
+
+                {/* 右：ガントバー */}
+                <div
+                  className="relative flex-shrink-0"
+                  style={{ width: TOTAL_DAYS * DAY_W }}
+                  onMouseDown={(e) => {
+                    if (drag || effHasBar) return;
+                    e.preventDefault();
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const anchorDay = Math.floor((e.clientX - rect.left) / DAY_W);
+                    setDrag({ taskId: task.id, kind: "create", startX: e.clientX, anchorDay, origStartOff: null, origEndOff: null });
+                  }}
+                >
+                  {Array.from({ length: Math.ceil(TOTAL_DAYS / 7) }).map((_, wi) => (
+                    <div key={wi} className="absolute top-0 bottom-0 border-r border-gray-100" style={{ left: wi * 7 * DAY_W }} />
+                  ))}
+                  {todayOff >= 0 && todayOff < TOTAL_DAYS && (
+                    <div className="absolute top-0 bottom-0 bg-indigo-50/50" style={{ left: todayOff * DAY_W, width: DAY_W }} />
+                  )}
+                  {/* 空行：クロスカーソル表示 */}
+                  {!effHasBar && (
+                    <div className="absolute inset-0 cursor-crosshair" />
+                  )}
+                  {/* ガントバー */}
+                  {effHasBar && (
+                    <div
+                      className={`absolute top-1/2 -translate-y-1/2 rounded ${level === 2 ? "h-3.5" : "h-5"} ${barColor} ${isPreview ? "opacity-90" : "opacity-75"} hover:opacity-100 transition-opacity cursor-grab group/bar`}
+                      style={{
+                        left: Math.max(0, effBarLeft),
+                        width: effBarLeft < 0 ? Math.max(DAY_W, effBarWidth + effBarLeft) : effBarWidth,
+                      }}
+                      title={`${task.title}${effStartOff !== null ? `\n開始: ${offToDateStr(effStartOff)}` : ""}${effEndOff !== null ? `\n終了: ${offToDateStr(effEndOff)}` : ""}`}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setDrag({ taskId: task.id, kind: "move", startX: e.clientX, anchorDay: 0, origStartOff: effStartOff, origEndOff: effEndOff });
+                      }}
+                    >
+                      {/* 左リサイズハンドル（startDate がある場合のみ） */}
+                      {effStartOff !== null && (
+                        <div
+                          className="absolute left-0 top-0 bottom-0 w-2.5 cursor-ew-resize rounded-l"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setDrag({ taskId: task.id, kind: "left", startX: e.clientX, anchorDay: 0, origStartOff: effStartOff, origEndOff: effEndOff });
+                          }}
+                        />
+                      )}
+                      {/* 右リサイズハンドル（endDate がある場合のみ） */}
+                      {effEndOff !== null && (
+                        <div
+                          className="absolute right-0 top-0 bottom-0 w-2.5 cursor-ew-resize rounded-r"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setDrag({ taskId: task.id, kind: "right", startX: e.clientX, anchorDay: 0, origStartOff: effStartOff, origEndOff: effEndOff });
+                          }}
+                        />
+                      )}
+                      {/* プレビュー中の日付ラベル */}
+                      {isPreview && effBarWidth > 60 && (
+                        <span className="absolute inset-0 flex items-center justify-center text-[10px] text-white font-medium pointer-events-none whitespace-nowrap px-1">
+                          {effStartOff !== null ? offToDateStr(effStartOff).slice(5) : "?"} – {effEndOff !== null ? offToDateStr(effEndOff).slice(5) : "?"}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+
+          {flatRows.length === 0 && (
+            <div className="flex items-center justify-center py-20 text-sm text-gray-400">
+              表示するタスクがありません
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* タスク編集モーダル */}
+      {modalTask && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setModalTask(null)}>
+          <div
+            className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto mx-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* ヘッダー */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">タスクを編集</span>
+              <button onClick={() => setModalTask(null)} className="text-gray-400 hover:text-gray-600 transition-colors">
+                <svg viewBox="0 0 12 12" className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M1 1l10 10M11 1L1 11" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="p-6 flex gap-6">
+              {/* 左：タイトル・説明 */}
+              <div className="flex-1 min-w-0 space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">タイトル</label>
+                  <input
+                    type="text"
+                    value={modalTitle}
+                    onChange={(e) => setModalTitle(e.target.value)}
+                    onBlur={handleTitleBlur}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">説明</label>
+                  <textarea
+                    value={modalDesc}
+                    onChange={(e) => setModalDesc(e.target.value)}
+                    onBlur={handleDescBlur}
+                    rows={6}
+                    placeholder="説明を入力（Markdown対応）"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-y"
+                  />
+                </div>
+              </div>
+
+              {/* 右：メタデータ */}
+              <div className="w-48 flex-shrink-0 space-y-3">
+                {/* 完了トグル */}
+                <button
+                  onClick={() => patchTask(modalTask.id, { done: !modalTask.done })}
+                  className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${modalTask.done ? "bg-indigo-50 border-indigo-200 text-indigo-700" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}
+                >
+                  <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${modalTask.done ? "bg-indigo-600 border-indigo-600" : "border-gray-300"}`}>
+                    {modalTask.done && <svg viewBox="0 0 12 12" fill="none" className="w-full h-full p-0.5"><path d="M2 6l3 3 5-5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+                  </div>
+                  {modalTask.done ? "完了済み" : "完了にする"}
+                </button>
+
+                {/* ステータス */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">ステータス</label>
+                  <select
+                    value={modalTask.status}
+                    onChange={(e) => patchTask(modalTask.id, { status: e.target.value })}
+                    className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-700 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                  >
+                    <option value="open">オープン</option>
+                    <option value="in_progress">着手</option>
+                    <option value="resolved">解決済み</option>
+                    <option value="on_hold">保留</option>
+                    <option value="closed">クローズ</option>
+                  </select>
+                </div>
+
+                {/* 優先度 */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">優先度</label>
+                  <select
+                    value={modalTask.priority}
+                    onChange={(e) => patchTask(modalTask.id, { priority: e.target.value })}
+                    className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-700 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                  >
+                    <option value="low">低</option>
+                    <option value="medium">中</option>
+                    <option value="high">高</option>
+                  </select>
+                </div>
+
+                {/* 開始日 */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">開始日</label>
+                  <input
+                    type="date"
+                    value={modalTask.startDate ? modalTask.startDate.slice(0, 10) : ""}
+                    onChange={(e) => patchTask(modalTask.id, { startDate: e.target.value || null })}
+                    className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-700 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                  />
+                </div>
+
+                {/* 終了日 */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">終了日</label>
+                  <input
+                    type="date"
+                    value={modalTask.endDate ? modalTask.endDate.slice(0, 10) : ""}
+                    onChange={(e) => patchTask(modalTask.id, { endDate: e.target.value || null })}
+                    className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-700 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                  />
+                </div>
+
+                {/* 期限 */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">期限</label>
+                  <input
+                    type="date"
+                    value={modalTask.dueDate ? modalTask.dueDate.slice(0, 10) : ""}
+                    onChange={(e) => patchTask(modalTask.id, { dueDate: e.target.value || null })}
+                    className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-700 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                  />
+                </div>
+
+                {/* プロジェクト */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">プロジェクト</label>
+                  <select
+                    value={modalTask.projectId ?? ""}
+                    onChange={(e) => patchTask(modalTask.id, { projectId: e.target.value ? parseInt(e.target.value) : null })}
+                    className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-700 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                  >
+                    <option value="">なし</option>
+                    {projects.filter((p) => p.status === "active" && !p.archivedAt).map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* スプリント */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">スプリント</label>
+                  <select
+                    value={modalTask.sprintId ?? ""}
+                    onChange={(e) => patchTask(modalTask.id, { sprintId: e.target.value ? parseInt(e.target.value) : null } as Partial<WBSTask>)}
+                    className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-700 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                  >
+                    <option value="">バックログ</option>
+                    {sprints.filter((s) => s.status !== "completed").map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* エピック */}
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">エピック</label>
+                  <select
+                    value={modalTask.epicId ?? ""}
+                    onChange={(e) => patchTask(modalTask.id, { epicId: e.target.value ? parseInt(e.target.value) : null } as Partial<WBSTask>)}
+                    className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 text-gray-700 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400"
+                  >
+                    <option value="">なし</option>
+                    {epics.map((ep) => (
+                      <option key={ep.id} value={ep.id}>{ep.title}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DroppableProjectItem({
   project, isSelected, taskCount, onSelect, onEdit, isTaskOver,
 }: {
@@ -1029,7 +1698,7 @@ export default function Home() {
   const [editProjectForm, setEditProjectForm] = useState({ name: "", key: "" });
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [activeOverId, setActiveOverId] = useState<string | number | null>(null);
-  const [mainMenu, setMainMenu] = useState<"tasks" | "sprints" | "projects">("tasks");
+  const [mainMenu, setMainMenu] = useState<"tasks" | "sprints" | "projects" | "wbs">("tasks");
   const [sprintSubMenu, setSprintSubMenu] = useState<"management" | "records">("management");
   const [showClosedSprints, setShowClosedSprints] = useState(false);
   const [selectedRecordSprintId, setSelectedRecordSprintId] = useState<number | null>(null);
@@ -1125,6 +1794,8 @@ export default function Home() {
       description: task.description ?? "",
       status: task.status as TaskStatus,
       priority: task.priority as Priority,
+      startDate: task.startDate ? task.startDate.split("T")[0] : "",
+      endDate: task.endDate ? task.endDate.split("T")[0] : "",
       dueDate: task.dueDate ? task.dueDate.split("T")[0] : "",
       sprintId: task.sprintId,
       projectId: task.projectId,
@@ -1190,7 +1861,7 @@ export default function Home() {
   }
 
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const savedSearchContextRef = useRef<{ view: ViewState; mainMenu: "tasks" | "sprints" | "projects" } | null>(null);
+  const savedSearchContextRef = useRef<{ view: ViewState; mainMenu: "tasks" | "sprints" | "projects" | "wbs" } | null>(null);
 
   async function fetchSearch(q: string) {
     setIsSearching(true);
@@ -1515,7 +2186,7 @@ export default function Home() {
   }
 
   function reopenProject(project: Project) {
-    patchProject(project.id, { status: "active" });
+    patchProject(project.id, { status: "active", archivedAt: null });
   }
 
   function archiveProject(project: Project) {
@@ -1727,6 +2398,12 @@ export default function Home() {
                 className={`px-4 py-1 rounded-md text-sm font-medium transition-colors ${mainMenu === "projects" ? "bg-white text-gray-800 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
               >
                 プロジェクト
+              </button>
+              <button
+                onClick={() => setMainMenu("wbs")}
+                className={`px-4 py-1 rounded-md text-sm font-medium transition-colors ${mainMenu === "wbs" ? "bg-white text-gray-800 shadow-sm" : "text-gray-500 hover:text-gray-700"}`}
+              >
+                WBS
               </button>
             </div>
             <div className="relative">
@@ -2069,6 +2746,18 @@ export default function Home() {
               </div>
             </div>
           </div>
+        )}
+
+        {mainMenu === "wbs" && (
+          <WBSView
+            tasks={tasks}
+            projects={projects}
+            sprints={sprints}
+            epics={epics}
+            filterProjectId={filterProjectId}
+            setFilterProjectId={setFilterProjectId}
+            onTaskUpdate={(id, data) => setTasks((prev) => prev.map((t) => t.id === id ? { ...t, ...data } as Task : t))}
+          />
         )}
 
         <div className={`flex flex-1 overflow-hidden ${mainMenu !== "tasks" ? "hidden" : ""}`}>
@@ -3126,6 +3815,24 @@ export default function Home() {
                         </select>
                       </div>
                       <div>
+                        <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">開始日</label>
+                        <input
+                          type="date"
+                          value={taskForm.startDate}
+                          onChange={(e) => { const v = e.target.value; setTaskForm({ ...taskForm, startDate: v }); saveTaskField(selectedTask.id, { startDate: v || null }); }}
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">終了日</label>
+                        <input
+                          type="date"
+                          value={taskForm.endDate}
+                          onChange={(e) => { const v = e.target.value; setTaskForm({ ...taskForm, endDate: v }); saveTaskField(selectedTask.id, { endDate: v || null }); }}
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                        />
+                      </div>
+                      <div>
                         <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">期限</label>
                         <input
                           type="date"
@@ -3329,6 +4036,35 @@ export default function Home() {
                       <option value="">なし</option>
                       {epics.map((ep) => <option key={ep.id} value={ep.id}>{ep.title}</option>)}
                     </select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">開始日</label>
+                      <input
+                        type="date"
+                        value={taskForm.startDate}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setTaskForm({ ...taskForm, startDate: v });
+                          if (panelMode === "edit" && selectedTask) saveTaskField(selectedTask.id, { startDate: v || null });
+                        }}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">終了日</label>
+                      <input
+                        type="date"
+                        value={taskForm.endDate}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setTaskForm({ ...taskForm, endDate: v });
+                          if (panelMode === "edit" && selectedTask) saveTaskField(selectedTask.id, { endDate: v || null });
+                        }}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
