@@ -65,6 +65,8 @@ model Task {
   status      String            @default("open")
   done        Boolean           @default(false)
   priority    String            @default("medium")
+  startDate   DateTime?
+  endDate     DateTime?
   dueDate     DateTime?
   sprintId    Int?
   sprint      Sprint?           @relation(fields: [sprintId], references: [id])

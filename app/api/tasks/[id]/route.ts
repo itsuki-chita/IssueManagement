@@ -107,6 +107,8 @@ export async function PATCH(
         ...(body.status !== undefined && { status: body.status }),
         ...(body.done !== undefined && { done: body.done }),
         ...(body.priority !== undefined && { priority: body.priority }),
+        ...(body.startDate !== undefined && { startDate: body.startDate ? new Date(body.startDate) : null }),
+        ...(body.endDate !== undefined && { endDate: body.endDate ? new Date(body.endDate) : null }),
         ...(body.dueDate !== undefined && { dueDate: body.dueDate ? new Date(body.dueDate) : null }),
         ...(body.sprintId !== undefined && { sprintId: body.sprintId }),
         ...(body.projectId !== undefined && { projectId: body.projectId }),
