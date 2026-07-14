@@ -852,6 +852,7 @@ function WBSView({
   filterProjectId,
   setFilterProjectId,
   onTaskUpdate,
+  onError,
 }: {
   tasks: WBSTask[];
   projects: WBSProject[];
@@ -860,6 +861,7 @@ function WBSView({
   filterProjectId: number | null;
   setFilterProjectId: (id: number | null) => void;
   onTaskUpdate: (id: number, data: Partial<WBSTask>) => void;
+  onError: (msg: string) => void;
 }) {
   const ROW_H = 36;
   const DAY_W = 26;
@@ -905,13 +907,24 @@ function WBSView({
   }
 
   async function patchTask(id: number, data: Partial<WBSTask>) {
-    await fetch(`/api/tasks/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    });
-    onTaskUpdate(id, data);
-    setModalTask((prev) => (prev ? { ...prev, ...data } : null));
+    try {
+      const res = await fetch(`/api/tasks/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        onError(`タスク更新に失敗しました (${res.status})。DBの同期が必要かもしれません: npx prisma db push`);
+        console.error("patchTask error:", text.slice(0, 300));
+        return;
+      }
+      onTaskUpdate(id, data);
+      setModalTask((prev) => (prev ? { ...prev, ...data } : null));
+    } catch (err) {
+      onError(`タスク更新中にエラーが発生しました。サーバーを再起動してください。`);
+      console.error("patchTask exception:", err);
+    }
   }
 
   function handleTitleBlur() {
@@ -1699,6 +1712,7 @@ export default function Home() {
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [activeOverId, setActiveOverId] = useState<string | number | null>(null);
   const [mainMenu, setMainMenu] = useState<"tasks" | "sprints" | "projects" | "wbs">("tasks");
+  const [apiError, setApiError] = useState<string | null>(null);
   const [sprintSubMenu, setSprintSubMenu] = useState<"management" | "records">("management");
   const [showClosedSprints, setShowClosedSprints] = useState(false);
   const [selectedRecordSprintId, setSelectedRecordSprintId] = useState<number | null>(null);
@@ -2172,13 +2186,24 @@ export default function Home() {
   }
 
   async function patchProject(id: number, data: Partial<Pick<Project, "status" | "archivedAt">>) {
-    const res = await fetch(`/api/projects/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    });
-    const updated = await res.json();
-    setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, ...updated } : p)));
+    try {
+      const res = await fetch(`/api/projects/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        setApiError(`プロジェクト更新に失敗しました (${res.status})。DBの同期が必要かもしれません: npx prisma db push`);
+        console.error("patchProject error:", text.slice(0, 300));
+        return;
+      }
+      const updated = await res.json();
+      setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, ...updated } : p)));
+    } catch (err) {
+      setApiError(`プロジェクト更新中にエラーが発生しました。サーバーを再起動してください。`);
+      console.error("patchProject exception:", err);
+    }
   }
 
   function closeProject(project: Project) {
@@ -2376,6 +2401,12 @@ export default function Home() {
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
     >
+      {apiError && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[9999] flex items-start gap-3 bg-red-50 border border-red-300 text-red-800 text-sm rounded-xl shadow-lg px-4 py-3 max-w-xl w-full mx-4">
+          <span className="flex-1">{apiError}</span>
+          <button onClick={() => setApiError(null)} className="ml-2 text-red-500 hover:text-red-700 font-bold shrink-0">✕</button>
+        </div>
+      )}
       <div className="h-screen flex flex-col bg-gray-50">
         <header className="bg-white border-b border-gray-200 px-6 py-2 flex-shrink-0">
           <div className="flex items-center justify-between">
@@ -2757,6 +2788,7 @@ export default function Home() {
             filterProjectId={filterProjectId}
             setFilterProjectId={setFilterProjectId}
             onTaskUpdate={(id, data) => setTasks((prev) => prev.map((t) => t.id === id ? { ...t, ...data } as Task : t))}
+            onError={(msg) => setApiError(msg)}
           />
         )}
 
