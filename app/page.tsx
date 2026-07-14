@@ -4741,6 +4741,12 @@ export default function Home() {
                       setUpdateSteps(data.steps ?? []);
                       setUpdateUpToDate(!!data.upToDate);
                       setUpdateStatus(data.success ? "done" : "error");
+                      // アップデート後にバックアップ一覧を更新
+                      if (data.success) {
+                        fetch("/api/admin/backups").then((r) => r.json()).then((d) => {
+                          if (Array.isArray(d)) setBackups(d);
+                        }).catch(() => {});
+                      }
                     } catch {
                       setUpdateSteps([{ label: "エラー", output: "リクエストに失敗しました", success: false }]);
                       setUpdateStatus("error");

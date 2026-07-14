@@ -39,6 +39,8 @@ export async function POST() {
       const backupFile = path.join(backupDir, `dev.db.${hash}.${ts}`);
       fs.copyFileSync(dbPath, backupFile);
       steps.push({ label: "DB バックアップ", output: `prisma/backups/dev.db.${hash}.${ts}`, success: true });
+    } else {
+      steps.push({ label: "DB バックアップ", output: "dev.db が存在しないためスキップしました（初回セットアップの場合は正常です）", success: true });
     }
 
     // 変更されるファイル一覧を取得
