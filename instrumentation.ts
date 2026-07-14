@@ -3,11 +3,30 @@ export async function register() {
     const { default: cron } = await import("node-cron");
     const { default: fs } = await import("fs");
     const { default: path } = await import("path");
+    const { execSync } = await import("child_process");
 
     // 開発時のホットリロードで二重登録しないようにグローバルフラグで管理
-    const g = globalThis as unknown as { __autoBackupScheduled?: boolean };
+    const g = globalThis as unknown as { __autoBackupScheduled?: boolean; __schemaSynced?: boolean };
     if (g.__autoBackupScheduled) return;
     g.__autoBackupScheduled = true;
+
+    // 起動時に prisma db push を実行し、スキーマと DB を自動同期
+    // git pull でバージョンを飛ばしてもサーバー再起動だけで対応できる
+    if (!g.__schemaSynced) {
+      g.__schemaSynced = true;
+      try {
+        const result = execSync("npx prisma db push --accept-data-loss", {
+          cwd: process.cwd(),
+          encoding: "utf-8",
+          stdio: "pipe",
+          timeout: 60000,
+        });
+        const lastLine = result.trim().split("\n").at(-1) ?? "";
+        console.log("[Startup] prisma db push:", lastLine);
+      } catch (err: unknown) {
+        console.error("[Startup] prisma db push failed:", (err as Error).message?.slice(0, 200));
+      }
+    }
 
     cron.schedule("0 3 * * *", () => {
       const cwd = process.cwd();
